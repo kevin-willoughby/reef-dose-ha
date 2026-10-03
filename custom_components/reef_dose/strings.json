@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Reef Dose",
+        "data": {
+          "host": "Host (e.g. 192.168.80.225:3000)",
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid API key",
+      "cannot_connect": "Could not reach reef-dose-service",
+      "no_pumps": "reef-dose-service returned no pumps"
+    },
+    "abort": {
+      "already_configured": "This host is already configured"
+    }
+  }
+}
