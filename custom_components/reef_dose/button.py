@@ -21,15 +21,15 @@ class ReefDosePrimeButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_name = "Prime"
 
-    def __init__(
-        self, coordinator: ReefDoseCoordinator, pump_id: str, device_name: str
-    ) -> None:
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
         self._coordinator = coordinator
         self._pump_id = pump_id
         self._attr_unique_id = f"{pump_id}_prime"
+        # See switch.py's ReefDoseSwitch for why this is the fixed pump
+        # number, not the current (renameable) product label.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, pump_id)},
-            name=device_name,
+            name=f"Pump {pump_id}",
             manufacturer="Reef Dose",
             model="Pump",
         )
@@ -44,6 +44,5 @@ async def async_setup_entry(
     coordinator: ReefDoseCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     async_add_entities(
-        ReefDosePrimeButton(coordinator, pump_id, pump["name"])
-        for pump_id, pump in coordinator.data.items()
+        ReefDosePrimeButton(coordinator, pump_id) for pump_id in coordinator.data
     )

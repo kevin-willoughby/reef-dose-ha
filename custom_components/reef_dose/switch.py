@@ -47,15 +47,21 @@ class ReefDoseSwitch(CoordinatorEntity[ReefDoseCoordinator], SwitchEntity):
         coordinator: ReefDoseCoordinator,
         description: ReefDoseSwitchDescription,
         pump_id: str,
-        device_name: str,
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._pump_id = pump_id
         self._attr_unique_id = f"{pump_id}_{description.key}"
+        # Name is the fixed physical pump number, not the current product
+        # label - the label can be renamed live (PATCH /pumps/:id/name)
+        # without a reflash, and device_info here is only captured once at
+        # entity setup, not re-evaluated per coordinator poll. Using the
+        # label as the device name would mean HA's device name silently
+        # goes stale after a rename until the integration reloads. See
+        # sensor.py for the live label instead.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, pump_id)},
-            name=device_name,
+            name=f"Pump {pump_id}",
             manufacturer="Reef Dose",
             model="Pump",
         )
@@ -96,8 +102,6 @@ async def async_setup_entry(
         if pump.get("scheduleEnabled") is None:
             continue
         for description in SWITCH_DESCRIPTIONS:
-            entities.append(
-                ReefDoseSwitch(coordinator, description, pump_id, pump["name"])
-            )
+            entities.append(ReefDoseSwitch(coordinator, description, pump_id))
 
     async_add_entities(entities)

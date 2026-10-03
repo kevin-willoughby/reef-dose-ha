@@ -16,11 +16,17 @@ protocol code of its own.
 
 ## What you get
 
-One Home Assistant device per physical pump (1–6), each with:
+One Home Assistant device per physical pump, **named "Pump 1".."Pump 6"** — deliberately fixed,
+not derived from whatever product is currently assigned to that pump. Each has:
 
 - **Schedule Enabled** / **Split Dose (2x Per Hour)** switches — only for pumps with a product
   assigned (a pump with no schedule capability still shows up, just without these two)
 - **Prime** button — fires a 10s prime pulse, on every pump regardless of schedule capability
+- **Label** sensor (diagnostic) — the pump's current product/OLED display label, live. This is
+  where the "what's actually dosed through this pump" info lives, kept separate from the device
+  name on purpose: the label can be renamed anytime (`PATCH /pumps/:id/name`, no reflash) and this
+  sensor just follows it on the next poll, where the device name itself would otherwise go stale
+  until a reload.
 
 Polled once a minute via a single `DataUpdateCoordinator`, same pattern as `alkatronic` in
 [focustronic-ha](https://github.com/kevin-willoughby/focustronic-ha).

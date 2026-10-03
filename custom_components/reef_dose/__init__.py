@@ -10,7 +10,7 @@ from .api import ReefDoseClient
 from .const import CONF_API_KEY, CONF_HOST, DOMAIN
 from .coordinator import ReefDoseCoordinator
 
-PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.BUTTON, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
