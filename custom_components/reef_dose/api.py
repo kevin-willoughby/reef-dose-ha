@@ -79,6 +79,22 @@ class ReefDoseClient:
     async def async_refill_reservoir(self, pump_id: str) -> None:
         await self._request("POST", f"/pumps/{pump_id}/reservoir/refill")
 
+    async def async_auto_divide_schedule(self, pump_id: str, daily_total_ml: float) -> dict[str, Any]:
+        """Evenly split daily_total_ml across all 24 hourly slots; returns the resulting schedule."""
+        return await self._request(
+            "POST", f"/pumps/{pump_id}/schedule/auto-divide", json={"dailyTotalMl": daily_total_ml}
+        )
+
+    async def async_get_groups(self) -> list[dict[str, Any]]:
+        """Return every scaling group as [{id, name, pumpIds, scalePercent}, ...]."""
+        return await self._request("GET", "/groups")
+
+    async def async_update_group(self, group_id: str, **fields: Any) -> dict[str, Any]:
+        """Partial update - only pass the fields that changed, e.g.
+        async_update_group(group_id, scalePercent=110).
+        """
+        return await self._request("PATCH", f"/groups/{group_id}", json=fields)
+
     async def _request(
         self, method: str, path: str, json: dict[str, Any] | None = None
     ) -> Any:

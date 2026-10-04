@@ -30,27 +30,59 @@ not derived from whatever product is currently assigned to that pump. Each has:
   Apply Calibration. A stale/missing session is rejected by the firmware itself; pressing Apply
   without ever pressing Start raises a clear error instead of silently no-op'ing.
 - **Reservoir Remaining** / **Reservoir Full Volume** (diagnostic) / **Reservoir Days Remaining**
-  sensors + **Refill Reservoir** button — only for pumps with a product assigned. Days Remaining
-  is projected from the pump's *current* schedule total (not historical usage — the device tracks
-  no such history), so it's `unknown` whenever the schedule is off or every slot is 0ml rather than
-  showing a misleading number.
+  sensors + **Refill Reservoir** button — only for pumps with a product assigned. Both
+  Remaining and Days Remaining are whole numbers, rounded *down* ("do I need to refill soon"
+  should never read more time/volume than is actually left) and projected from the pump's
+  *current* schedule total (not historical usage — the device tracks no such history), so Days
+  Remaining is `unknown` whenever the schedule is off or every slot is 0ml rather than showing a
+  misleading number.
+- **Daily Total (Auto-Divide)** number + **Apply Auto-Divide Schedule** button — only for pumps
+  with a product assigned. Give it a total ml/day and press the button to evenly split that across
+  all 24 hourly slots and write it straight to the device — the schedule's *starting point*, not
+  its end state (individual hourly slots aren't editable from HA yet; use `reef-dose-service`'s
+  `PATCH /pumps/:id/schedule` directly for that until a real schedule screen exists).
 - **Label** sensor (diagnostic) — the pump's current product/OLED display label, live. This is
   where the "what's actually dosed through this pump" info lives, kept separate from the device
   name on purpose: the label can be renamed anytime (`PATCH /pumps/:id/name`, no reflash) and this
   sensor just follows it on the next poll, where the device name itself would otherwise go stale
   until a reload.
 
-Polled once a minute via a single `DataUpdateCoordinator`, same pattern as `alkatronic` in
+Polled once a minute via a `DataUpdateCoordinator`, same pattern as `alkatronic` in
 [focustronic-ha](https://github.com/kevin-willoughby/focustronic-ha).
+
+### Scaling groups
+
+One additional Home Assistant device per *scaling group* (requirements.md Section 5), named after
+the group, each with a single **Scale** number entity (0–1000%). Unlike every pump number entity
+above, this one writes straight through on change — there's no separate "Apply" button, since the
+`PATCH /groups/:id` call itself is what rescales every member pump's schedule on
+`reef-dose-service`'s side.
+
+Groups are genuinely dynamic — created via `reef-dose-service`'s API (`POST /groups/:id`), not
+hardcoded here or there (pumps 5/6 are still generic placeholders as of this writing, so group
+membership can't be derived from product assignments yet). This integration only creates a Scale
+entity for groups that already exist when it starts up; **a group created later needs a reload of
+this integration** (Settings → Devices & Services → Reef Dose → ⋮ → Reload) to show up. Creating a
+group itself isn't exposed from HA yet — use the API directly, e.g.:
+
+```bash
+curl -X POST http://<host>/groups/complete-parts \
+  -H "x-api-key: <service_api_key>" -H "content-type: application/json" \
+  -d '{"name": "Complete Parts", "pumpIds": ["1", "4"]}'
+```
 
 ## Adding more later
 
 `api.py` holds the REST calls (mirrors `reef-dose-service`'s routes 1:1), `switch.py`'s
 `SWITCH_DESCRIPTIONS` holds one entry per schedule-backed boolean — extending either is additive,
-not a rewrite. The manual-dose and calibration number entities hold their values on the
-coordinator (`manual_dose_ml`, `calibration_measured_ml`, `calibration_sessions` in
-`coordinator.py`), not polled from the device, so the matching button can read them at press time
-without a cross-platform entity lookup.
+not a rewrite. The manual-dose, calibration, and daily-total number entities hold their values on
+the pump coordinator (`manual_dose_ml`, `calibration_measured_ml`, `calibration_sessions`,
+`daily_total_ml` in `coordinator.py`), not polled from the device, so the matching button can read
+them at press time without a cross-platform entity lookup. Groups poll through a separate
+`ReefDoseGroupsCoordinator` (`groups_coordinator.py`), keyed by group id rather than pump id, so
+group records never collide with pump-keyed entities' assumptions about `coordinator.data`'s shape.
 
-Still open: the group-%-scaling schedule math and the Cloudflare Access policy for the service's
-tunnel — see `AquariumDosing/scratchpad/docs/architecture.md`'s "Next Session — Start Here" list.
+Still open: per-slot schedule editing from HA (the real "schedule screen" — a Lovelace dashboard or
+bespoke frontend, still undecided), creating/deleting groups from HA, and the Cloudflare Access
+policy for the service's tunnel — see `AquariumDosing/scratchpad/docs/architecture.md`'s "Next
+Session — Start Here" list.

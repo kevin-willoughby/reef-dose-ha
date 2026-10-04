@@ -93,7 +93,7 @@ class ReefDoseSwitch(CoordinatorEntity[ReefDoseCoordinator], SwitchEntity):
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator: ReefDoseCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[DOMAIN][entry.entry_id].coordinator
 
     entities: list[ReefDoseSwitch] = []
     for pump_id, pump in coordinator.data.items():

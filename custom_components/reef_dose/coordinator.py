@@ -33,6 +33,10 @@ class ReefDoseCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.manual_dose_ml: dict[str, float] = {}
         self.calibration_measured_ml: dict[str, float] = {}
         self.calibration_sessions: dict[str, int] = {}
+        # Pending "total ml/day" for the Auto-Divide Schedule button -
+        # see button.py's ReefDoseAutoDivideButton / number.py's
+        # ReefDoseDailyTotalMlNumber.
+        self.daily_total_ml: dict[str, float] = {}
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:

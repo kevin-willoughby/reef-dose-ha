@@ -105,6 +105,34 @@ class ReefDoseRefillReservoirButton(ButtonEntity):
         await self._coordinator.async_request_refresh()
 
 
+class ReefDoseAutoDivideButton(ButtonEntity):
+    """Evenly splits the Daily Total (Auto-Divide) number across all 24
+    hourly slots (requirements.md Section 3) and writes it straight to
+    the device - the schedule's starting point, not its end state;
+    individual slots can still be hand-edited afterward (not yet
+    exposed here - see architecture.md's open items).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply Auto-Divide Schedule"
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_auto_divide_schedule"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        daily_total_ml = self._coordinator.daily_total_ml.get(self._pump_id, 0.0)
+        await self._coordinator.client.async_auto_divide_schedule(self._pump_id, daily_total_ml)
+        await self._coordinator.async_request_refresh()
+
+
 class ReefDoseApplyCalibrationButton(ButtonEntity):
     """Applies the last Start Calibration session using the measured-ml number.
 
@@ -142,7 +170,7 @@ class ReefDoseApplyCalibrationButton(ButtonEntity):
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator: ReefDoseCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[DOMAIN][entry.entry_id].coordinator
 
     entities: list[ButtonEntity] = [
         ReefDosePrimeButton(coordinator, pump_id) for pump_id in coordinator.data
@@ -160,6 +188,7 @@ async def async_setup_entry(
             ReefDoseStartCalibrationButton,
             ReefDoseApplyCalibrationButton,
             ReefDoseRefillReservoirButton,
+            ReefDoseAutoDivideButton,
         )
     )
 
