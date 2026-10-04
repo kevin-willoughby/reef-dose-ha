@@ -12,8 +12,15 @@ from .api import ReefDoseClient
 from .const import CONF_API_KEY, CONF_HOST, DOMAIN
 from .coordinator import ReefDoseCoordinator
 from .groups_coordinator import ReefDoseGroupsCoordinator
+from .services import async_setup_services
 
-PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.BUTTON, Platform.SENSOR, Platform.NUMBER]
+PLATFORMS: list[Platform] = [
+    Platform.SWITCH,
+    Platform.BUTTON,
+    Platform.SENSOR,
+    Platform.NUMBER,
+    Platform.BINARY_SENSOR,
+]
 
 
 @dataclass
@@ -35,6 +42,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await groups_coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = ReefDoseData(coordinator, groups_coordinator)
+
+    # Idempotent (guarded by has_service inside) - safe to call on
+    # every entry setup, including a reload.
+    await async_setup_services(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

@@ -24,11 +24,14 @@ not derived from whatever product is currently assigned to that pump. Each has:
 - **Prime** button — fires a 10s prime pulse, on every pump regardless of schedule capability
 - **Manual Dose** button + **Manual Dose Amount** number — fires a one-off dose of whatever ml
   amount the number entity currently holds, on every pump regardless of schedule capability
-- **Start Calibration** / **Apply Calibration** buttons + **Calibration Measured Amount** number —
-  only for pumps with a product assigned. Press Start Calibration first (it stashes the returned
-  session id), dial in the measured ml from a graduated cylinder into the number entity, then press
-  Apply Calibration. A stale/missing session is rejected by the firmware itself; pressing Apply
-  without ever pressing Start raises a clear error instead of silently no-op'ing.
+- **Start Calibration** / **Apply Calibration** buttons + **Calibration Measured Amount** number +
+  **Calibrating** binary sensor — only for pumps with a product assigned. Press Start Calibration
+  first (it stashes the returned session id and flips Calibrating on), dial in the measured ml from
+  a graduated cylinder into the number entity, then press Apply Calibration (which flips Calibrating
+  back off). A stale/missing session is rejected by the firmware itself; pressing Apply without ever
+  pressing Start raises a clear error instead of silently no-op'ing. The Calibrating binary sensor
+  exists specifically to drive a **guided** Lovelace flow — see below — rather than always showing
+  all three controls at once.
 - **Reservoir Remaining** / **Reservoir Full Volume** (diagnostic) / **Reservoir Days Remaining**
   sensors + **Refill Reservoir** button — only for pumps with a product assigned. Both
   Remaining and Days Remaining are whole numbers, rounded *down* ("do I need to refill soon"
@@ -49,6 +52,32 @@ not derived from whatever product is currently assigned to that pump. Each has:
 
 Polled once a minute via a `DataUpdateCoordinator`, same pattern as `alkatronic` in
 [focustronic-ha](https://github.com/kevin-willoughby/focustronic-ha).
+
+### Guided calibration (stock Lovelace, no custom card)
+
+The Calibrating binary sensor lets a dashboard show only the relevant step instead of all three
+calibration controls at once — standard Lovelace `conditional` cards, nothing custom:
+
+```yaml
+type: vertical-stack
+cards:
+  - type: conditional
+    conditions:
+      - entity: binary_sensor.pump_1_calibrating
+        state: "off"
+    card:
+      type: button
+      entity: button.pump_1_start_calibration
+  - type: conditional
+    conditions:
+      - entity: binary_sensor.pump_1_calibrating
+        state: "on"
+    card:
+      type: entities
+      entities:
+        - number.pump_1_calibration_measured_amount
+        - button.pump_1_apply_calibration
+```
 
 ### Scaling groups
 
@@ -71,6 +100,32 @@ curl -X POST http://<host>/groups/complete-parts \
   -d '{"name": "Complete Parts", "pumpIds": ["1", "4"]}'
 ```
 
+(or call the `reef_dose.create_group` service below from Developer Tools → Actions — same effect,
+no `curl` needed)
+
+## Services (`reef_dose.*`)
+
+Beyond the entities above, this integration registers services for the structured actions no
+single entity can represent — a partial dict of 24 hourly slot values, an arbitrary pump-id list.
+These exist for [reef-dose-card](https://github.com/kevin-willoughby/reef-dose-card) (the schedule
+editor / group management custom Lovelace card) to call via `hass.callService`, not primarily for
+hand-written automations, though they work fine from Developer Tools → Actions too. `service_api_key`
+never leaves the integration — the card never sees it, only service names/data — same security
+boundary every other entity in this integration already holds.
+
+| Service | Does |
+|---|---|
+| `reef_dose.get_schedule` | Reads one pump's full schedule. Response-only. |
+| `reef_dose.update_schedule` | Partial update — `slots`, `schedule_enabled`, `split_dose_enabled`, any subset |
+| `reef_dose.auto_divide_schedule` | Same as the Apply Auto-Divide button, but with an arbitrary `daily_total_ml` instead of reading the number entity |
+| `reef_dose.get_groups` | Lists every scaling group. Response-only. |
+| `reef_dose.create_group` | `group_id`, `name`, `pump_ids`, optional `scale_percent` |
+| `reef_dose.update_group` | Partial update — `name`, `pump_ids`, `scale_percent`, any subset |
+| `reef_dose.delete_group` | `group_id` |
+
+Full field descriptions: `services.yaml`, or Developer Tools → Actions in HA's own UI once this
+integration is loaded.
+
 ## Adding more later
 
 `api.py` holds the REST calls (mirrors `reef-dose-service`'s routes 1:1), `switch.py`'s
@@ -82,7 +137,7 @@ them at press time without a cross-platform entity lookup. Groups poll through a
 `ReefDoseGroupsCoordinator` (`groups_coordinator.py`), keyed by group id rather than pump id, so
 group records never collide with pump-keyed entities' assumptions about `coordinator.data`'s shape.
 
-Still open: per-slot schedule editing from HA (the real "schedule screen" — a Lovelace dashboard or
-bespoke frontend, still undecided), creating/deleting groups from HA, and the Cloudflare Access
-policy for the service's tunnel — see `AquariumDosing/scratchpad/docs/architecture.md`'s "Next
-Session — Start Here" list.
+Still open: the `reef-dose-card` custom Lovelace card itself (the services above exist to back it,
+but the card hasn't been built yet — group creation/per-slot editing are Developer-Tools/`curl`-only
+until it exists) and the Cloudflare Access policy for the service's tunnel — see
+`AquariumDosing/scratchpad/docs/architecture.md`'s "Next Session — Start Here" list.

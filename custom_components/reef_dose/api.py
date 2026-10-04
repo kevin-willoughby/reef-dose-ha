@@ -95,6 +95,17 @@ class ReefDoseClient:
         """
         return await self._request("PATCH", f"/groups/{group_id}", json=fields)
 
+    async def async_create_group(
+        self, group_id: str, name: str, pump_ids: list[str], scale_percent: float | None = None
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"name": name, "pumpIds": pump_ids}
+        if scale_percent is not None:
+            body["scalePercent"] = scale_percent
+        return await self._request("POST", f"/groups/{group_id}", json=body)
+
+    async def async_delete_group(self, group_id: str) -> None:
+        await self._request("DELETE", f"/groups/{group_id}")
+
     async def _request(
         self, method: str, path: str, json: dict[str, Any] | None = None
     ) -> Any:

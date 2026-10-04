@@ -81,6 +81,11 @@ class ReefDoseStartCalibrationButton(ButtonEntity):
     async def async_press(self) -> None:
         session_id = await self._coordinator.client.async_start_calibration(self._pump_id)
         self._coordinator.calibration_sessions[self._pump_id] = session_id
+        # Prompts the Calibrating binary sensor to flip on promptly,
+        # rather than waiting for the next minute-interval poll - see
+        # binary_sensor.py and the guided-flow Lovelace example in
+        # README.
+        await self._coordinator.async_request_refresh()
 
 
 class ReefDoseRefillReservoirButton(ButtonEntity):
@@ -165,6 +170,12 @@ class ReefDoseApplyCalibrationButton(ButtonEntity):
         await self._coordinator.client.async_apply_calibration(
             self._pump_id, session_id, measured_ml
         )
+        # Clears the in-progress flag the Calibrating binary sensor
+        # reads (see binary_sensor.py) - completes the guided
+        # Start -> enter value -> Apply flow a Lovelace conditional
+        # card drives off that sensor (see README).
+        self._coordinator.calibration_sessions.pop(self._pump_id, None)
+        await self._coordinator.async_request_refresh()
 
 
 async def async_setup_entry(

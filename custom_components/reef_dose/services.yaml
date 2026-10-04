@@ -1,0 +1,124 @@
+get_schedule:
+  name: Get Schedule
+  description: >-
+    Reads one pump's full 24-hour schedule (scheduleEnabled, all 24 slots,
+    splitDoseEnabled). Response-only - meant for the reef-dose-card custom
+    Lovelace card, not automations.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+
+update_schedule:
+  name: Update Schedule
+  description: >-
+    Partial update to one pump's schedule - only the fields given are
+    changed. slots is a map of hour ("00"-"23") to ml (0-50, 2 decimal
+    places); 0 removes that slot.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    schedule_enabled:
+      selector:
+        boolean:
+    split_dose_enabled:
+      selector:
+        boolean:
+    slots:
+      example: '{"00": 1.29, "14": 0}'
+      selector:
+        object:
+
+auto_divide_schedule:
+  name: Auto-Divide Schedule
+  description: >-
+    Evenly splits a daily total ml across all 24 hourly slots and writes it
+    straight to the device - the schedule's starting point, not its end
+    state.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    daily_total_ml:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1200
+          step: 0.01
+          unit_of_measurement: mL
+
+get_groups:
+  name: Get Groups
+  description: Lists every scaling group. Response-only.
+
+create_group:
+  name: Create Group
+  description: Creates a new scaling group.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    name:
+      required: true
+      example: Complete Parts
+      selector:
+        text:
+    pump_ids:
+      required: true
+      example: '["1", "4"]'
+      selector:
+        object:
+    scale_percent:
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: "%"
+
+update_group:
+  name: Update Group
+  description: >-
+    Partial update to a scaling group - only the fields given are changed.
+    Changing scale_percent rescales every member pump's full schedule.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    pump_ids:
+      example: '["1", "4"]'
+      selector:
+        object:
+    scale_percent:
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: "%"
+
+delete_group:
+  name: Delete Group
+  description: >-
+    Deletes a scaling group. Member pumps keep dosing whatever their last
+    effective schedule was - this just stops anything from rescaling them
+    going forward.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
