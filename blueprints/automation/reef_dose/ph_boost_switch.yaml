@@ -1,0 +1,147 @@
+blueprint:
+  name: Reef Dose - pH-Boost Part 1 Variant Switch
+  description: >-
+    Implements requirements.md Section 6: once an hour, at :45 past, decides
+    which Part 1 variant (no-boost or pH-boost) should dose the *next* hour,
+    based on the Apex's real-time pH and time of day, then syncs the
+    group's shared schedule (template) to whichever variant is chosen and
+    enables it while disabling the other - never both at once. Any other
+    group members that should always stay in sync (e.g. Part 2, which
+    always matches whichever Part 1 variant is active) are re-synced every
+    run too.
+
+    Requires the group this targets to have autoSync: false (see
+    reef-dose-service's README) - this automation is what's now
+    responsible for ever writing to the two variant pumps, not the group
+    itself.
+
+    Decision logic: pH > 8.3 -> no-boost. pH < 8.3 -> boost. Additionally,
+    after 20:00 *and* pH < 8.4 -> boost (overrides the above). If the pH
+    sensor is unavailable or hasn't updated recently, falls back to a
+    manual seasonal default you set yourself via an input_boolean helper
+    (Settings -> Devices & Services -> Helpers -> Toggle) - ON = winter =
+    boost default, OFF = summer = no-boost default.
+  domain: automation
+  input:
+    apex_ph_entity:
+      name: Apex pH Sensor
+      description: The Apex's real-time pH sensor entity.
+      default: sensor.apex_ph
+      selector:
+        entity:
+          domain: sensor
+    group_id:
+      name: Group ID
+      description: >-
+        The reef-dose scaling group id these two Part 1 variants belong to
+        (e.g. "Reef Zelements") - must have autoSync: false.
+      selector:
+        text:
+    no_boost_pump_id:
+      name: No-Boost Pump ID
+      description: Physical pump number (1-6) for Part 1 WITHOUT pH boost.
+      selector:
+        text:
+    boost_pump_id:
+      name: pH-Boost Pump ID
+      description: Physical pump number (1-6) for Part 1 WITH pH boost.
+      selector:
+        text:
+    always_on_pump_ids:
+      name: Always-On Pump IDs
+      description: >-
+        Other group members to always re-sync every run, every hour,
+        regardless of which Part 1 variant was chosen (e.g. Part 2's pump
+        id). Leave empty if none.
+      default: []
+      selector:
+        text:
+          multiple: true
+    seasonal_default_helper:
+      name: Seasonal Default Helper
+      description: >-
+        An input_boolean you create yourself first (Settings -> Devices &
+        Services -> Helpers -> + Add Helper -> Toggle). ON = winter = boost
+        default, OFF = summer = no-boost default. Only used when the pH
+        sensor is unavailable or stale.
+      selector:
+        entity:
+          domain: input_boolean
+    stale_after_minutes:
+      name: Stale After (minutes)
+      description: >-
+        If the pH sensor hasn't updated in this many minutes, treat it as
+        unavailable and use the seasonal default instead.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: minutes
+
+trigger:
+  - platform: time_pattern
+    minutes: 45
+
+condition: []
+
+variables:
+  ph_entity: !input apex_ph_entity
+  stale_after_minutes: !input stale_after_minutes
+  seasonal_helper: !input seasonal_default_helper
+  no_boost_pump: !input no_boost_pump_id
+  boost_pump: !input boost_pump_id
+  target_group_id: !input group_id
+  always_on_pumps: !input always_on_pump_ids
+  ph_available: "{{ states(ph_entity) not in ['unknown', 'unavailable', none] }}"
+  ph_age_minutes: >-
+    {{ ((now() - states[ph_entity].last_changed).total_seconds() / 60)
+       if ph_available else 999999 }}
+  ph_fresh: "{{ ph_available and ph_age_minutes < stale_after_minutes }}"
+  ph_value: "{{ states(ph_entity) | float(8.3) }}"
+  seasonal_boost: "{{ is_state(seasonal_helper, 'on') }}"
+  # pH>8.3 -> no-boost, pH<8.3 -> boost, additionally after 20:00 and
+  # pH<8.4 -> boost (overrides) - requirements.md Section 6.
+  decision_boost: >-
+    {{ ((ph_value < 8.3) or (now().hour >= 20 and ph_value < 8.4))
+       if ph_fresh else seasonal_boost }}
+
+action:
+  - choose:
+      - conditions:
+          - "{{ decision_boost }}"
+        sequence:
+          - service: reef_dose.update_schedule
+            data:
+              pump_id: "{{ boost_pump }}"
+              schedule_enabled: true
+          - service: reef_dose.update_schedule
+            data:
+              pump_id: "{{ no_boost_pump }}"
+              schedule_enabled: false
+          - service: reef_dose.sync_group_member
+            data:
+              group_id: "{{ target_group_id }}"
+              pump_id: "{{ boost_pump }}"
+    default:
+      - service: reef_dose.update_schedule
+        data:
+          pump_id: "{{ no_boost_pump }}"
+          schedule_enabled: true
+      - service: reef_dose.update_schedule
+        data:
+          pump_id: "{{ boost_pump }}"
+          schedule_enabled: false
+      - service: reef_dose.sync_group_member
+        data:
+          group_id: "{{ target_group_id }}"
+          pump_id: "{{ no_boost_pump }}"
+  - repeat:
+      for_each: "{{ always_on_pumps }}"
+      sequence:
+        - service: reef_dose.sync_group_member
+          data:
+            group_id: "{{ target_group_id }}"
+            pump_id: "{{ repeat.item }}"
+
+mode: single

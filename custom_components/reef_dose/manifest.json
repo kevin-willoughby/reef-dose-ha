@@ -1,7 +1,7 @@
 {
   "domain": "reef_dose",
   "name": "Reef Dose",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "codeowners": ["@kevin-willoughby"],
   "config_flow": true,
   "documentation": "https://github.com/kevin-willoughby/reef-dose-ha",

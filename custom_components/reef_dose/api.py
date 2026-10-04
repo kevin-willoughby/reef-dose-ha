@@ -96,15 +96,30 @@ class ReefDoseClient:
         return await self._request("PATCH", f"/groups/{group_id}", json=fields)
 
     async def async_create_group(
-        self, group_id: str, name: str, pump_ids: list[str], scale_percent: float | None = None
+        self,
+        group_id: str,
+        name: str,
+        pump_ids: list[str],
+        scale_percent: float | None = None,
+        auto_sync: bool | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"name": name, "pumpIds": pump_ids}
         if scale_percent is not None:
             body["scalePercent"] = scale_percent
+        if auto_sync is not None:
+            body["autoSync"] = auto_sync
         return await self._request("POST", f"/groups/{group_id}", json=body)
 
     async def async_delete_group(self, group_id: str) -> None:
         await self._request("DELETE", f"/groups/{group_id}")
+
+    async def async_sync_group_member(self, group_id: str, pump_id: str) -> None:
+        """Pushes the group's current template to just this one member."""
+        await self._request("POST", f"/groups/{group_id}/sync/{pump_id}")
+
+    async def async_sync_group(self, group_id: str) -> None:
+        """Pushes the group's current template to every current member."""
+        await self._request("POST", f"/groups/{group_id}/sync")
 
     async def async_get_group_schedule(self, group_id: str) -> dict[str, Any]:
         """Return {id, scalePercent, slots} - the group's own canonical schedule."""

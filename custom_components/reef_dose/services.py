@@ -37,6 +37,7 @@ ATTR_SPLIT_DOSE_ENABLED = "split_dose_enabled"
 ATTR_SLOTS = "slots"
 ATTR_DAILY_TOTAL_ML = "daily_total_ml"
 ATTR_DELTA_PERCENT = "delta_percent"
+ATTR_AUTO_SYNC = "auto_sync"
 
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_UPDATE_SCHEDULE = "update_schedule"
@@ -49,6 +50,8 @@ SERVICE_DELETE_GROUP = "delete_group"
 SERVICE_GET_GROUP_SCHEDULE = "get_group_schedule"
 SERVICE_UPDATE_GROUP_SCHEDULE = "update_group_schedule"
 SERVICE_AUTO_DIVIDE_GROUP_SCHEDULE = "auto_divide_group_schedule"
+SERVICE_SYNC_GROUP_MEMBER = "sync_group_member"
+SERVICE_SYNC_GROUP = "sync_group"
 
 _HOUR_KEYS = [f"{h:02d}" for h in range(24)]
 
@@ -79,6 +82,7 @@ CREATE_GROUP_SCHEMA = vol.Schema(
         vol.Required(ATTR_NAME): cv.string,
         vol.Required(ATTR_PUMP_IDS): [cv.string],
         vol.Optional(ATTR_SCALE_PERCENT): vol.Coerce(float),
+        vol.Optional(ATTR_AUTO_SYNC): cv.boolean,
     }
 )
 
@@ -88,6 +92,7 @@ UPDATE_GROUP_SCHEMA = vol.Schema(
         vol.Optional(ATTR_NAME): cv.string,
         vol.Optional(ATTR_PUMP_IDS): [cv.string],
         vol.Optional(ATTR_SCALE_PERCENT): vol.Coerce(float),
+        vol.Optional(ATTR_AUTO_SYNC): cv.boolean,
     }
 )
 
@@ -115,6 +120,15 @@ AUTO_DIVIDE_GROUP_SCHEDULE_SCHEMA = vol.Schema(
         vol.Required(ATTR_DAILY_TOTAL_ML): vol.Coerce(float),
     }
 )
+
+SYNC_GROUP_MEMBER_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_GROUP_ID): cv.string,
+        vol.Required(ATTR_PUMP_ID): cv.string,
+    }
+)
+
+SYNC_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_GROUP_ID): cv.string})
 
 
 def _get_client(hass: HomeAssistant) -> ReefDoseClient:
@@ -192,6 +206,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 call.data[ATTR_NAME],
                 call.data[ATTR_PUMP_IDS],
                 call.data.get(ATTR_SCALE_PERCENT),
+                call.data.get(ATTR_AUTO_SYNC),
             )
         )
         await _refresh_groups()
@@ -206,11 +221,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 (ATTR_NAME, "name"),
                 (ATTR_PUMP_IDS, "pumpIds"),
                 (ATTR_SCALE_PERCENT, "scalePercent"),
+                (ATTR_AUTO_SYNC, "autoSync"),
             )
             if attr in call.data
         }
         result = await _call(client.async_update_group(group_id, **fields))
         await _refresh_groups()
+        await _refresh_pumps()
         return result
 
     async def delete_group(call: ServiceCall) -> None:
@@ -247,6 +264,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await _refresh_pumps()
         await _refresh_groups()
         return result
+
+    async def sync_group_member(call: ServiceCall) -> None:
+        client = _get_client(hass)
+        await _call(client.async_sync_group_member(call.data[ATTR_GROUP_ID], call.data[ATTR_PUMP_ID]))
+        await _refresh_pumps()
+
+    async def sync_group(call: ServiceCall) -> None:
+        client = _get_client(hass)
+        await _call(client.async_sync_group(call.data[ATTR_GROUP_ID]))
+        await _refresh_pumps()
 
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY
@@ -311,3 +338,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schema=AUTO_DIVIDE_GROUP_SCHEDULE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SYNC_GROUP_MEMBER, sync_group_member, schema=SYNC_GROUP_MEMBER_SCHEMA
+    )
+    hass.services.async_register(DOMAIN, SERVICE_SYNC_GROUP, sync_group, schema=SYNC_GROUP_SCHEMA)

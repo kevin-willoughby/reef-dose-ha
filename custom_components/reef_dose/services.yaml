@@ -84,6 +84,15 @@ create_group:
           min: 0
           max: 1000
           unit_of_measurement: "%"
+    auto_sync:
+      description: >-
+        true (default): push to every member immediately on any template
+        change. false: only update the stored template - nothing reaches a
+        device until sync_group_member/sync_group is called explicitly. Use
+        false for a group with mutually-exclusive members (e.g. two Part 1
+        variants, only one of which should ever be enabled at a time).
+      selector:
+        boolean:
 
 update_group:
   name: Update Group
@@ -109,6 +118,9 @@ update_group:
           min: 0
           max: 1000
           unit_of_measurement: "%"
+    auto_sync:
+      selector:
+        boolean:
 
 delete_group:
   name: Delete Group
@@ -194,3 +206,32 @@ auto_divide_group_schedule:
           max: 1200
           step: 0.01
           unit_of_measurement: mL
+
+sync_group_member:
+  name: Sync Group Member
+  description: >-
+    Pushes a group's current template to just one member pump - the
+    explicit action an autoSync: false group needs (e.g. an automation
+    deciding which of several mutually-exclusive variants should actually
+    be active right now).
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+
+sync_group:
+  name: Sync Group
+  description: Pushes a group's current template to every current member.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:

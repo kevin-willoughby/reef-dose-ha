@@ -138,15 +138,56 @@ boundary every other entity in this integration already holds.
 | `reef_dose.auto_divide_schedule` | Same as the Apply Auto-Divide button, but with an arbitrary `daily_total_ml` instead of reading the number entity |
 | `reef_dose.apply_pump_adjustment` | Same as the per-pump Apply Adjustment button, but with an arbitrary `delta_percent`. Rejected if the pump is in a group. |
 | `reef_dose.get_groups` | Lists every scaling group. Response-only. |
-| `reef_dose.create_group` | `group_id`, `name`, `pump_ids`, optional `scale_percent` |
-| `reef_dose.update_group` | Partial update — `name`, `pump_ids`, `scale_percent`, any subset |
+| `reef_dose.create_group` | `group_id`, `name`, `pump_ids`, optional `scale_percent`, optional `auto_sync` |
+| `reef_dose.update_group` | Partial update — `name`, `pump_ids`, `scale_percent`, `auto_sync`, any subset |
 | `reef_dose.delete_group` | `group_id` |
 | `reef_dose.get_group_schedule` | Reads a group's own canonical schedule. Response-only. |
-| `reef_dose.update_group_schedule` | Partial edit to a group's schedule — `slots`, pushed identically to every current member |
+| `reef_dose.update_group_schedule` | Partial edit to a group's schedule — `slots`, pushed to every member only if `auto_sync` is true |
 | `reef_dose.auto_divide_group_schedule` | Same as the group's Apply Auto-Divide Schedule button, but with an arbitrary `daily_total_ml` |
+| `reef_dose.sync_group_member` | Explicitly pushes a group's current template to one member — the action an `auto_sync: false` group needs |
+| `reef_dose.sync_group` | Explicitly pushes a group's current template to every current member |
 
 Full field descriptions: `services.yaml`, or Developer Tools → Actions in HA's own UI once this
 integration is loaded.
+
+### `auto_sync`
+
+Every group defaults to `auto_sync: true` — any template/scale/membership change pushes
+immediately to every current member, same as before this flag existed. Set it to `false` for a
+group whose members are **mutually exclusive variants of the same dose** (e.g. two interchangeable
+Part 1 formulas, only one of which should ever actually be dosing at a time). With `auto_sync:
+false`, template edits only update the stored template — nothing reaches a device until
+`reef_dose.sync_group_member`/`reef_dose.sync_group` is called explicitly, typically from an
+automation that decides which variant should be active right now (see Blueprint below).
+
+## Blueprint: pH-boost Part 1 variant switch
+
+`blueprints/automation/reef_dose/ph_boost_switch.yaml` implements requirements.md §6 — the
+ReefZelements use case above, made concrete: Part 1 has a no-boost pump and a pH-boost pump that
+must never both be enabled at once, decided hourly from the Apex's real pH and time of day, with
+Part 2 always kept in sync with whichever variant is active.
+
+**Setup:**
+
+1. Create an `input_boolean` helper first (Settings → Devices & Services → Helpers → + Add Helper
+   → Toggle) — this is the manual seasonal fallback the blueprint uses only when the pH sensor is
+   unavailable or stale. ON = winter = boost default, OFF = summer = no-boost default.
+2. Set the real ReefZelements group to `auto_sync: false` once (Developer Tools → Actions →
+   `reef_dose.update_group` with `group_id: "Reef Zelements"`, `auto_sync: false`) — otherwise the
+   group itself will keep fighting the blueprint by re-pushing the template to all three members on
+   every template edit.
+3. Settings → Automations & Scenes → Blueprints → Import Blueprint, point it at this file (or the
+   raw GitHub URL once pushed), then create an automation from it with:
+   - **Apex pH Sensor**: `sensor.apex_ph`
+   - **Group ID**: `Reef Zelements`
+   - **No-Boost Pump ID**: `1`
+   - **pH-Boost Pump ID**: `2`
+   - **Always-On Pump IDs**: `4` (Part 2)
+   - **Seasonal Default Helper**: the `input_boolean` created in step 1
+
+The automation runs at :45 past every hour, deciding which variant doses the upcoming hour, and
+can be tested immediately via its own "Run actions" button in the HA UI rather than waiting for a
+real trigger.
 
 ## Adding more later
 
