@@ -36,14 +36,19 @@ ATTR_SCHEDULE_ENABLED = "schedule_enabled"
 ATTR_SPLIT_DOSE_ENABLED = "split_dose_enabled"
 ATTR_SLOTS = "slots"
 ATTR_DAILY_TOTAL_ML = "daily_total_ml"
+ATTR_DELTA_PERCENT = "delta_percent"
 
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_UPDATE_SCHEDULE = "update_schedule"
 SERVICE_AUTO_DIVIDE_SCHEDULE = "auto_divide_schedule"
+SERVICE_APPLY_PUMP_ADJUSTMENT = "apply_pump_adjustment"
 SERVICE_GET_GROUPS = "get_groups"
 SERVICE_CREATE_GROUP = "create_group"
 SERVICE_UPDATE_GROUP = "update_group"
 SERVICE_DELETE_GROUP = "delete_group"
+SERVICE_GET_GROUP_SCHEDULE = "get_group_schedule"
+SERVICE_UPDATE_GROUP_SCHEDULE = "update_group_schedule"
+SERVICE_AUTO_DIVIDE_GROUP_SCHEDULE = "auto_divide_group_schedule"
 
 _HOUR_KEYS = [f"{h:02d}" for h in range(24)]
 
@@ -87,6 +92,29 @@ UPDATE_GROUP_SCHEMA = vol.Schema(
 )
 
 DELETE_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_GROUP_ID): cv.string})
+
+APPLY_PUMP_ADJUSTMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PUMP_ID): cv.string,
+        vol.Required(ATTR_DELTA_PERCENT): vol.Coerce(float),
+    }
+)
+
+GET_GROUP_SCHEDULE_SCHEMA = vol.Schema({vol.Required(ATTR_GROUP_ID): cv.string})
+
+UPDATE_GROUP_SCHEDULE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_GROUP_ID): cv.string,
+        vol.Required(ATTR_SLOTS): {vol.In(_HOUR_KEYS): vol.Coerce(float)},
+    }
+)
+
+AUTO_DIVIDE_GROUP_SCHEDULE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_GROUP_ID): cv.string,
+        vol.Required(ATTR_DAILY_TOTAL_ML): vol.Coerce(float),
+    }
+)
 
 
 def _get_client(hass: HomeAssistant) -> ReefDoseClient:
@@ -190,6 +218,36 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await _call(client.async_delete_group(call.data[ATTR_GROUP_ID]))
         await _refresh_groups()
 
+    async def apply_pump_adjustment(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        result = await _call(
+            client.async_apply_pump_adjustment(call.data[ATTR_PUMP_ID], call.data[ATTR_DELTA_PERCENT])
+        )
+        await _refresh_pumps()
+        return result
+
+    async def get_group_schedule(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        return await _call(client.async_get_group_schedule(call.data[ATTR_GROUP_ID]))
+
+    async def update_group_schedule(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        result = await _call(
+            client.async_update_group_schedule(call.data[ATTR_GROUP_ID], call.data[ATTR_SLOTS])
+        )
+        await _refresh_pumps()
+        await _refresh_groups()
+        return result
+
+    async def auto_divide_group_schedule(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        result = await _call(
+            client.async_auto_divide_group_schedule(call.data[ATTR_GROUP_ID], call.data[ATTR_DAILY_TOTAL_ML])
+        )
+        await _refresh_pumps()
+        await _refresh_groups()
+        return result
+
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY
     )
@@ -225,3 +283,31 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(DOMAIN, SERVICE_DELETE_GROUP, delete_group, schema=DELETE_GROUP_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_APPLY_PUMP_ADJUSTMENT,
+        apply_pump_adjustment,
+        schema=APPLY_PUMP_ADJUSTMENT_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_GROUP_SCHEDULE,
+        get_group_schedule,
+        schema=GET_GROUP_SCHEDULE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_GROUP_SCHEDULE,
+        update_group_schedule,
+        schema=UPDATE_GROUP_SCHEDULE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_AUTO_DIVIDE_GROUP_SCHEDULE,
+        auto_divide_group_schedule,
+        schema=AUTO_DIVIDE_GROUP_SCHEDULE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )

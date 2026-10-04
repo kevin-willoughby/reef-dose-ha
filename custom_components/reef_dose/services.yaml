@@ -122,3 +122,75 @@ delete_group:
       example: complete-parts
       selector:
         text:
+
+apply_pump_adjustment:
+  name: Apply Pump Adjustment
+  description: >-
+    "Manual Overall Adjustment" for a single, ungrouped pump - a percentage
+    that compounds onto whatever the pump's schedule is currently at (-10
+    means 10% less than now, not an absolute target). Rejected if the pump
+    is currently in a group - adjust the group instead.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    delta_percent:
+      required: true
+      selector:
+        number:
+          min: -100
+          max: 900
+          unit_of_measurement: "%"
+
+get_group_schedule:
+  name: Get Group Schedule
+  description: >-
+    Reads a scaling group's own 24-hour schedule (the exact values pushed
+    identically to every current member). Response-only.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+
+update_group_schedule:
+  name: Update Group Schedule
+  description: >-
+    Partial edit to a scaling group's own schedule - writes the given hours
+    identically to every current member. slots is a map of hour ("00"-"23")
+    to ml (0-50, 2 decimal places); 0 removes that slot.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    slots:
+      required: true
+      example: '{"00": 1.29, "14": 0}'
+      selector:
+        object:
+
+auto_divide_group_schedule:
+  name: Auto-Divide Group Schedule
+  description: >-
+    Evenly splits a daily total ml across all 24 hourly slots and pushes it
+    identically to every current member - the group schedule's starting
+    point, not its end state.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    daily_total_ml:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1200
+          step: 0.01
+          unit_of_measurement: mL

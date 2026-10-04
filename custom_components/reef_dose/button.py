@@ -179,22 +179,60 @@ class ReefDoseApplyCalibrationButton(ButtonEntity):
         await self._coordinator.async_request_refresh()
 
 
-class ReefDoseApplyGroupAdjustmentButton(ButtonEntity):
-    """Applies the Manual Overall Adjustment number's pending delta to
-    one group, compounding it onto the group's CURRENT scale (not the
-    fixed 100% base) - requirements.md Section 5. Resets the pending
-    delta back to 0 once applied, same as Start/Apply Calibration
-    clearing its session.
+class ReefDoseApplyPumpAdjustmentButton(ButtonEntity):
+    """Applies the per-pump Manual Overall Adjustment number's pending
+    delta to one UNGROUPED pump, compounding it onto the pump's
+    CURRENT schedule (requirements.md Section 5). Resets the pending
+    delta back to 0 once applied. Rejected server-side if this pump is
+    currently in a group - use the group's own Apply Adjustment
+    instead (see number.py's grouped_pump_ids filter, which normally
+    keeps this button from even being created for a grouped pump).
     """
 
     _attr_has_entity_name = True
     _attr_name = "Apply Adjustment"
 
-    def __init__(self, coordinator: ReefDoseGroupsCoordinator, group_id: str) -> None:
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
         self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_apply_adjustment"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        delta_percent = self._coordinator.pending_adjustment.get(self._pump_id, 0.0)
+        await self._coordinator.client.async_apply_pump_adjustment(self._pump_id, delta_percent)
+        self._coordinator.pending_adjustment[self._pump_id] = 0.0
+        await self._coordinator.async_request_refresh()
+
+
+class ReefDoseApplyGroupAutoDivideButton(ButtonEntity):
+    """Evenly splits the group's Daily Total (Auto-Divide) number
+    across all 24 hourly slots and pushes it identically to every
+    current member (requirements.md Section 3) - the group-level
+    counterpart to ReefDoseAutoDivideButton above. Refreshes both
+    coordinators since this changes member pumps' schedules too, not
+    just the group record itself.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply Auto-Divide Schedule"
+
+    def __init__(
+        self,
+        groups_coordinator: ReefDoseGroupsCoordinator,
+        pump_coordinator: ReefDoseCoordinator,
+        group_id: str,
+    ) -> None:
+        self._groups_coordinator = groups_coordinator
+        self._pump_coordinator = pump_coordinator
         self._group_id = group_id
-        self._attr_unique_id = f"group_{group_id}_apply_adjustment"
-        group_name = coordinator.data.get(group_id, {}).get("name", group_id)
+        self._attr_unique_id = f"group_{group_id}_auto_divide_schedule"
+        group_name = groups_coordinator.data.get(group_id, {}).get("name", group_id)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"group_{group_id}")},
             name=group_name,
@@ -203,12 +241,50 @@ class ReefDoseApplyGroupAdjustmentButton(ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        delta_percent = self._coordinator.pending_adjustment.get(self._group_id, 0.0)
-        current_scale = self._coordinator.data.get(self._group_id, {}).get("scalePercent", 100.0)
+        daily_total_ml = self._groups_coordinator.daily_total_ml.get(self._group_id, 0.0)
+        await self._groups_coordinator.client.async_auto_divide_group_schedule(self._group_id, daily_total_ml)
+        await self._groups_coordinator.async_request_refresh()
+        await self._pump_coordinator.async_request_refresh()
+
+
+class ReefDoseApplyGroupAdjustmentButton(ButtonEntity):
+    """Applies the Manual Overall Adjustment number's pending delta to
+    one group, compounding it onto the group's CURRENT scale (not the
+    fixed 100% base) - requirements.md Section 5. Resets the pending
+    delta back to 0 once applied, same as Start/Apply Calibration
+    clearing its session. Refreshes both coordinators - this rescales
+    every member pump's schedule too, not just the group record.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply Adjustment"
+
+    def __init__(
+        self,
+        groups_coordinator: ReefDoseGroupsCoordinator,
+        pump_coordinator: ReefDoseCoordinator,
+        group_id: str,
+    ) -> None:
+        self._groups_coordinator = groups_coordinator
+        self._pump_coordinator = pump_coordinator
+        self._group_id = group_id
+        self._attr_unique_id = f"group_{group_id}_apply_adjustment"
+        group_name = groups_coordinator.data.get(group_id, {}).get("name", group_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"group_{group_id}")},
+            name=group_name,
+            manufacturer="Reef Dose",
+            model="Scaling Group",
+        )
+
+    async def async_press(self) -> None:
+        delta_percent = self._groups_coordinator.pending_adjustment.get(self._group_id, 0.0)
+        current_scale = self._groups_coordinator.data.get(self._group_id, {}).get("scalePercent", 100.0)
         new_scale = round(current_scale * (1 + delta_percent / 100), 2)
-        await self._coordinator.client.async_update_group(self._group_id, scalePercent=new_scale)
-        self._coordinator.pending_adjustment[self._group_id] = 0.0
-        await self._coordinator.async_request_refresh()
+        await self._groups_coordinator.client.async_update_group(self._group_id, scalePercent=new_scale)
+        self._groups_coordinator.pending_adjustment[self._group_id] = 0.0
+        await self._groups_coordinator.async_request_refresh()
+        await self._pump_coordinator.async_request_refresh()
 
 
 async def async_setup_entry(
@@ -236,11 +312,28 @@ async def async_setup_entry(
             ReefDoseAutoDivideButton,
         )
     )
+
+    # Every pump currently belonging to ANY group - same filter as
+    # number.py's grouped_pump_ids, so a grouped pump never gets its
+    # own (conflicting) adjustment control.
+    grouped_pump_ids = {
+        pump_id for group in data.groups_coordinator.data.values() for pump_id in group.get("pumpIds", [])
+    }
+    entities.extend(
+        ReefDoseApplyPumpAdjustmentButton(coordinator, pump_id)
+        for pump_id, pump in coordinator.data.items()
+        if pump.get("scheduleEnabled") is not None and pump_id not in grouped_pump_ids
+    )
+
     # Groups are dynamic (see groups_coordinator.py) - only ones that
     # exist at setup time get an entity; a group created later via the
     # API needs a reload to show up here.
     entities.extend(
-        ReefDoseApplyGroupAdjustmentButton(data.groups_coordinator, group_id)
+        ReefDoseApplyGroupAdjustmentButton(data.groups_coordinator, coordinator, group_id)
+        for group_id in data.groups_coordinator.data
+    )
+    entities.extend(
+        ReefDoseApplyGroupAutoDivideButton(data.groups_coordinator, coordinator, group_id)
         for group_id in data.groups_coordinator.data
     )
 

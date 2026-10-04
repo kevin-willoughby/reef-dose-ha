@@ -106,6 +106,24 @@ class ReefDoseClient:
     async def async_delete_group(self, group_id: str) -> None:
         await self._request("DELETE", f"/groups/{group_id}")
 
+    async def async_get_group_schedule(self, group_id: str) -> dict[str, Any]:
+        """Return {id, scalePercent, slots} - the group's own canonical schedule."""
+        return await self._request("GET", f"/groups/{group_id}/schedule")
+
+    async def async_update_group_schedule(self, group_id: str, slots: dict[str, float]) -> dict[str, Any]:
+        return await self._request("PATCH", f"/groups/{group_id}/schedule", json={"slots": slots})
+
+    async def async_auto_divide_group_schedule(self, group_id: str, daily_total_ml: float) -> dict[str, Any]:
+        return await self._request(
+            "POST", f"/groups/{group_id}/schedule/auto-divide", json={"dailyTotalMl": daily_total_ml}
+        )
+
+    async def async_apply_pump_adjustment(self, pump_id: str, delta_percent: float) -> dict[str, Any]:
+        """Section 5's "Manual Overall Adjustment" for a single, ungrouped pump."""
+        return await self._request(
+            "POST", f"/pumps/{pump_id}/adjustment", json={"deltaPercent": delta_percent}
+        )
+
     async def _request(
         self, method: str, path: str, json: dict[str, Any] | None = None
     ) -> Any:

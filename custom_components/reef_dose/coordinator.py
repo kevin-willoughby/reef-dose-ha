@@ -37,6 +37,12 @@ class ReefDoseCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         # see button.py's ReefDoseAutoDivideButton / number.py's
         # ReefDoseDailyTotalMlNumber.
         self.daily_total_ml: dict[str, float] = {}
+        # Pending per-pump "Manual Overall Adjustment" delta (%), for
+        # an UNGROUPED pump only - see number.py's
+        # ReefDosePumpAdjustmentNumber / button.py's
+        # ReefDoseApplyPumpAdjustmentButton. A grouped pump adjusts via
+        # its group's own entities instead (groups_coordinator.py).
+        self.pending_adjustment: dict[str, float] = {}
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:

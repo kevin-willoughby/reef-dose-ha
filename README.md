@@ -42,8 +42,13 @@ not derived from whatever product is currently assigned to that pump. Each has:
 - **Daily Total (Auto-Divide)** number + **Apply Auto-Divide Schedule** button — only for pumps
   with a product assigned. Give it a total ml/day and press the button to evenly split that across
   all 24 hourly slots and write it straight to the device — the schedule's *starting point*, not
-  its end state (individual hourly slots aren't editable from HA yet; use `reef-dose-service`'s
-  `PATCH /pumps/:id/schedule` directly for that until a real schedule screen exists).
+  its end state. Per-slot editing itself is the [reef-dose-card](https://github.com/kevin-willoughby/reef-dose-card)
+  custom Lovelace card's job, not an HA entity.
+- **Manual Overall Adjustment** number + **Apply Adjustment** button — only for pumps with a
+  product assigned, and only while the pump is **not** in a scaling group (a grouped pump adjusts
+  via its group's own Manual Overall Adjustment instead — see "Scaling groups" below). Enter a
+  +/- percentage (e.g. `-10`) and press Apply to compound it onto whatever the pump's schedule is
+  *currently* at, same semantics as the group version.
 - **Label** sensor (diagnostic) — the pump's current product/OLED display label, live. This is
   where the "what's actually dosed through this pump" info lives, kept separate from the device
   name on purpose: the label can be renamed anytime (`PATCH /pumps/:id/name`, no reflash) and this
@@ -81,6 +86,14 @@ cards:
 
 ### Scaling groups
 
+A group owns **one shared 24-hour schedule** — every current member pump is kept identical to it
+(scaled by the group's Manual Overall Adjustment), not just nudged by a shared percentage over
+independently-drifting per-pump schedules. This is what makes ReefZElements-style groups work: two
+mutually-exclusive Part 1 variants (no-boost / pH-boost) plus Part 2, always 1:1 — editing the
+schedule once, at the group level, pushes the exact same numbers to every member. See
+`reef-dose-service`'s README for the full mechanics (base-slot bookkeeping, what happens when a
+pump leaves).
+
 One additional Home Assistant device per *scaling group* (requirements.md Section 5), named after
 the group, each with:
 
@@ -94,22 +107,19 @@ the group, each with:
 - **Current Scale** sensor (read-only) — the resulting absolute percentage (100 = the group's
   unscaled base), so you can see what the adjustments have compounded to without doing the math
   yourself.
+- **Daily Total (Auto-Divide)** number + **Apply Auto-Divide Schedule** button — the group-level
+  counterpart to the per-pump version above: evenly splits a total ml/day across all 24 hours and
+  pushes it identically to every current member.
 
 Groups are genuinely dynamic — created via `reef-dose-service`'s API (`POST /groups/:id`), not
 hardcoded here or there (pumps 5/6 are still generic placeholders as of this writing, so group
 membership can't be derived from product assignments yet). This integration only creates these
 entities for groups that already exist when it starts up; **a group created later needs a reload of
 this integration** (Settings → Devices & Services → Reef Dose → ⋮ → Reload) to show up. Creating a
-group itself isn't exposed from HA yet — use the API directly, e.g.:
-
-```bash
-curl -X POST http://<host>/groups/complete-parts \
-  -H "x-api-key: <service_api_key>" -H "content-type: application/json" \
-  -d '{"name": "Complete Parts", "pumpIds": ["1", "4"]}'
-```
-
-(or call the `reef_dose.create_group` service below from Developer Tools → Actions — same effect,
-no `curl` needed)
+group, editing its per-slot schedule, and managing membership are the
+[reef-dose-card](https://github.com/kevin-willoughby/reef-dose-card) custom Lovelace card's job —
+or call the `reef_dose.create_group`/`reef_dose.update_group_schedule` services below from
+Developer Tools → Actions directly.
 
 ## Services (`reef_dose.*`)
 
@@ -126,10 +136,14 @@ boundary every other entity in this integration already holds.
 | `reef_dose.get_schedule` | Reads one pump's full schedule. Response-only. |
 | `reef_dose.update_schedule` | Partial update — `slots`, `schedule_enabled`, `split_dose_enabled`, any subset |
 | `reef_dose.auto_divide_schedule` | Same as the Apply Auto-Divide button, but with an arbitrary `daily_total_ml` instead of reading the number entity |
+| `reef_dose.apply_pump_adjustment` | Same as the per-pump Apply Adjustment button, but with an arbitrary `delta_percent`. Rejected if the pump is in a group. |
 | `reef_dose.get_groups` | Lists every scaling group. Response-only. |
 | `reef_dose.create_group` | `group_id`, `name`, `pump_ids`, optional `scale_percent` |
 | `reef_dose.update_group` | Partial update — `name`, `pump_ids`, `scale_percent`, any subset |
 | `reef_dose.delete_group` | `group_id` |
+| `reef_dose.get_group_schedule` | Reads a group's own canonical schedule. Response-only. |
+| `reef_dose.update_group_schedule` | Partial edit to a group's schedule — `slots`, pushed identically to every current member |
+| `reef_dose.auto_divide_group_schedule` | Same as the group's Apply Auto-Divide Schedule button, but with an arbitrary `daily_total_ml` |
 
 Full field descriptions: `services.yaml`, or Developer Tools → Actions in HA's own UI once this
 integration is loaded.
@@ -138,14 +152,16 @@ integration is loaded.
 
 `api.py` holds the REST calls (mirrors `reef-dose-service`'s routes 1:1), `switch.py`'s
 `SWITCH_DESCRIPTIONS` holds one entry per schedule-backed boolean — extending either is additive,
-not a rewrite. The manual-dose, calibration, and daily-total number entities hold their values on
-the pump coordinator (`manual_dose_ml`, `calibration_measured_ml`, `calibration_sessions`,
-`daily_total_ml` in `coordinator.py`), not polled from the device, so the matching button can read
-them at press time without a cross-platform entity lookup. Groups poll through a separate
-`ReefDoseGroupsCoordinator` (`groups_coordinator.py`), keyed by group id rather than pump id, so
-group records never collide with pump-keyed entities' assumptions about `coordinator.data`'s shape.
+not a rewrite. The manual-dose, calibration, daily-total, and adjustment number entities hold their
+values on the pump coordinator (`manual_dose_ml`, `calibration_measured_ml`,
+`calibration_sessions`, `daily_total_ml`, `pending_adjustment` in `coordinator.py`), not polled
+from the device, so the matching button can read them at press time without a cross-platform
+entity lookup. Groups poll through a separate `ReefDoseGroupsCoordinator`
+(`groups_coordinator.py`), keyed by group id rather than pump id, so group records never collide
+with pump-keyed entities' assumptions about `coordinator.data`'s shape — it carries the same two
+pending-value dicts for its own Manual Overall Adjustment and Daily Total (Auto-Divide) entities.
+A pump currently in a group gets its adjustment/auto-divide entities from the group instead of its
+own (`grouped_pump_ids`, computed once at setup in `number.py`/`button.py`'s `async_setup_entry`).
 
-Still open: the `reef-dose-card` custom Lovelace card itself (the services above exist to back it,
-but the card hasn't been built yet — group creation/per-slot editing are Developer-Tools/`curl`-only
-until it exists) and the Cloudflare Access policy for the service's tunnel — see
+Still open: the Cloudflare Access policy for the service's tunnel — see
 `AquariumDosing/scratchpad/docs/architecture.md`'s "Next Session — Start Here" list.

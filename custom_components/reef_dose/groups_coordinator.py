@@ -47,6 +47,10 @@ class ReefDoseGroupsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]
         # button.py's ReefDoseApplyGroupAdjustmentButton. Reset to 0
         # after each Apply.
         self.pending_adjustment: dict[str, float] = {}
+        # Pending "total ml/day" for the group's Auto-Divide Schedule
+        # button - see number.py's ReefDoseGroupDailyTotalMlNumber /
+        # button.py's ReefDoseApplyGroupAutoDivideButton.
+        self.daily_total_ml: dict[str, float] = {}
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:

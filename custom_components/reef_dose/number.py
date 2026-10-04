@@ -163,6 +163,81 @@ class ReefDoseGroupAdjustmentNumber(NumberEntity):
         self.async_write_ha_state()
 
 
+class ReefDosePumpAdjustmentNumber(NumberEntity):
+    """Pending per-pump "Manual Overall Adjustment" delta (%), for an
+    UNGROUPED pump only (requirements.md Section 5) - same
+    delta-compounding semantics as ReefDoseGroupAdjustmentNumber above,
+    applied directly to one standalone pump instead of a group. A
+    grouped pump adjusts via its group's own entities instead - see
+    async_setup_entry's grouped_pump_ids filter.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Manual Overall Adjustment"
+    _attr_native_min_value = -100
+    _attr_native_max_value = 900
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._pump_id = pump_id
+        self._store = coordinator.pending_adjustment
+        self._store.setdefault(pump_id, 0.0)
+        self._attr_unique_id = f"{pump_id}_adjustment"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    @property
+    def native_value(self) -> float:
+        return self._store[self._pump_id]
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._store[self._pump_id] = value
+        self.async_write_ha_state()
+
+
+class ReefDoseGroupDailyTotalMlNumber(NumberEntity):
+    """The total ml/day the group's Auto-Divide Schedule button will
+    evenly split across all 24 hourly slots and push identically to
+    every current member (requirements.md Section 3) - the group-level
+    counterpart to ReefDoseDailyTotalMlNumber above.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Daily Total (Auto-Divide)"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1200
+    _attr_native_step = 0.01
+    _attr_native_unit_of_measurement = "mL"
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, coordinator: ReefDoseGroupsCoordinator, group_id: str) -> None:
+        self._group_id = group_id
+        self._store = coordinator.daily_total_ml
+        self._store.setdefault(group_id, 0.0)
+        self._attr_unique_id = f"group_{group_id}_daily_total_ml"
+        group_name = coordinator.data.get(group_id, {}).get("name", group_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"group_{group_id}")},
+            name=group_name,
+            manufacturer="Reef Dose",
+            model="Scaling Group",
+        )
+
+    @property
+    def native_value(self) -> float:
+        return self._store[self._group_id]
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._store[self._group_id] = value
+        self.async_write_ha_state()
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -181,12 +256,29 @@ async def async_setup_entry(
         if pump.get("scheduleEnabled") is not None
         for number_cls in (ReefDoseCalibrationMeasuredMlNumber, ReefDoseDailyTotalMlNumber)
     )
+
+    # Every pump currently belonging to ANY group - computed once at
+    # setup from groups_coordinator.data, same "static at startup"
+    # caveat the group entities below already carry. A grouped pump
+    # adjusts via its group's Manual Overall Adjustment instead of its
+    # own, so it's excluded here rather than getting a duplicate,
+    # conflicting control.
+    grouped_pump_ids = {
+        pump_id for group in data.groups_coordinator.data.values() for pump_id in group.get("pumpIds", [])
+    }
+    entities.extend(
+        ReefDosePumpAdjustmentNumber(coordinator, pump_id)
+        for pump_id, pump in coordinator.data.items()
+        if pump.get("scheduleEnabled") is not None and pump_id not in grouped_pump_ids
+    )
+
     # Groups are dynamic (see groups_coordinator.py) - only ones that
     # exist at setup time get an entity; a group created later via the
     # API needs a reload to show up here.
     entities.extend(
-        ReefDoseGroupAdjustmentNumber(data.groups_coordinator, group_id)
+        number_cls(data.groups_coordinator, group_id)
         for group_id in data.groups_coordinator.data
+        for number_cls in (ReefDoseGroupAdjustmentNumber, ReefDoseGroupDailyTotalMlNumber)
     )
 
     async_add_entities(entities)
