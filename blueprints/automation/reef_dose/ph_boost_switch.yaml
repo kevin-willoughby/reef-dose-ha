@@ -15,12 +15,17 @@ blueprint:
     responsible for ever writing to the two variant pumps, not the group
     itself.
 
-    Decision logic: pH > 8.3 -> no-boost. pH < 8.3 -> boost. Additionally,
-    after 20:00 *and* pH < 8.4 -> boost (overrides the above). If the pH
-    sensor is unavailable or hasn't updated recently, falls back to a
-    manual seasonal default you set yourself via an input_boolean helper
-    (Settings -> Devices & Services -> Helpers -> Toggle) - ON = winter =
-    boost default, OFF = summer = no-boost default.
+    Gated by a manual "pH Boost Enabled" input_boolean you create yourself
+    (Settings -> Devices & Services -> Helpers -> Toggle) - this is the
+    season switch, not a pH fallback: OFF means boost is out of season
+    entirely, so the automation forces no-boost every run without even
+    looking at pH. ON means boost season is active, so the automation
+    examines live pH and time of day to decide - pH > 8.3 -> no-boost,
+    pH < 8.3 -> boost, additionally after 20:00 *and* pH < 8.4 -> boost
+    (overrides the above). If the pH sensor is unavailable or hasn't
+    updated recently while boost is in season, defaults to boost (the
+    safer assumption during the season this channel exists for) until a
+    fresh reading arrives.
   domain: automation
   input:
     apex_ph_entity:
@@ -57,21 +62,23 @@ blueprint:
       selector:
         text:
           multiple: true
-    seasonal_default_helper:
-      name: Seasonal Default Helper
+    ph_boost_enabled_helper:
+      name: pH Boost Enabled
       description: >-
         An input_boolean you create yourself first (Settings -> Devices &
-        Services -> Helpers -> + Add Helper -> Toggle). ON = winter = boost
-        default, OFF = summer = no-boost default. Only used when the pH
-        sensor is unavailable or stale.
+        Services -> Helpers -> + Add Helper -> Toggle). ON = pH-boost
+        season is active - the hourly decision examines live pH and time
+        of day. OFF = out of season - always no-boost, pH is not even
+        checked.
       selector:
         entity:
           domain: input_boolean
     stale_after_minutes:
       name: Stale After (minutes)
       description: >-
-        If the pH sensor hasn't updated in this many minutes, treat it as
-        unavailable and use the seasonal default instead.
+        If the pH sensor hasn't updated in this many minutes while boost
+        is in season, treat it as unavailable and default to boost instead
+        until a fresh reading arrives.
       default: 30
       selector:
         number:
@@ -88,7 +95,7 @@ condition: []
 variables:
   ph_entity: !input apex_ph_entity
   stale_after_minutes: !input stale_after_minutes
-  seasonal_helper: !input seasonal_default_helper
+  ph_boost_helper: !input ph_boost_enabled_helper
   no_boost_pump: !input no_boost_pump_id
   boost_pump: !input boost_pump_id
   target_group_id: !input group_id
@@ -99,12 +106,15 @@ variables:
        if ph_available else 999999 }}
   ph_fresh: "{{ ph_available and ph_age_minutes < stale_after_minutes }}"
   ph_value: "{{ states(ph_entity) | float(8.3) }}"
-  seasonal_boost: "{{ is_state(seasonal_helper, 'on') }}"
+  boost_in_season: "{{ is_state(ph_boost_helper, 'on') }}"
+  # Out of season -> always no-boost, pH not even considered. In season ->
   # pH>8.3 -> no-boost, pH<8.3 -> boost, additionally after 20:00 and
-  # pH<8.4 -> boost (overrides) - requirements.md Section 6.
+  # pH<8.4 -> boost (overrides); if pH is stale while in season, default
+  # to boost rather than no-boost - requirements.md Section 6.
   decision_boost: >-
-    {{ ((ph_value < 8.3) or (now().hour >= 20 and ph_value < 8.4))
-       if ph_fresh else seasonal_boost }}
+    {{ false if not boost_in_season else
+       (((ph_value < 8.3) or (now().hour >= 20 and ph_value < 8.4))
+        if ph_fresh else true) }}
 
 action:
   # Disable the losing variant BEFORE enabling the winner, and tolerate a

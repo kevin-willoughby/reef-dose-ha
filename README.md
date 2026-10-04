@@ -170,8 +170,9 @@ Part 2 always kept in sync with whichever variant is active.
 **Setup:**
 
 1. Create an `input_boolean` helper first (Settings → Devices & Services → Helpers → + Add Helper
-   → Toggle) — this is the manual seasonal fallback the blueprint uses only when the pH sensor is
-   unavailable or stale. ON = winter = boost default, OFF = summer = no-boost default.
+   → Toggle) — this is the season gate, not a pH fallback. ON = pH-boost season is active, so the
+   blueprint examines live pH and time of day each run. OFF = out of season, so it forces no-boost
+   every run without even checking pH.
 2. Set the real ReefZelements group to `auto_sync: false` once (Developer Tools → Actions →
    `reef_dose.update_group` with `group_id: "Reef Zelements"`, `auto_sync: false`) — otherwise the
    group itself will keep fighting the blueprint by re-pushing the template to all three members on
@@ -183,7 +184,7 @@ Part 2 always kept in sync with whichever variant is active.
    - **No-Boost Pump ID**: `1`
    - **pH-Boost Pump ID**: `2`
    - **Always-On Pump IDs**: `4` (Part 2)
-   - **Seasonal Default Helper**: the `input_boolean` created in step 1
+   - **pH Boost Enabled**: the `input_boolean` created in step 1
 
 The automation runs at :50 past every hour, deciding which variant doses the upcoming hour, and
 can be tested immediately via its own "Run actions" button in the HA UI rather than waiting for a
