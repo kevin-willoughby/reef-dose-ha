@@ -55,6 +55,30 @@ class ReefDoseClient:
         """
         return await self._request("PATCH", f"/pumps/{pump_id}/schedule", json=fields)
 
+    async def async_manual_dose(self, pump_id: str, ml: float) -> None:
+        await self._request("POST", f"/pumps/{pump_id}/dose", json={"ml": ml})
+
+    async def async_start_calibration(self, pump_id: str) -> int:
+        """Start a calibration run; returns the sessionId to pass to apply."""
+        body = await self._request("POST", f"/pumps/{pump_id}/calibration/start")
+        return body["sessionId"]
+
+    async def async_apply_calibration(
+        self, pump_id: str, session_id: int, measured_ml: float
+    ) -> None:
+        await self._request(
+            "POST",
+            f"/pumps/{pump_id}/calibration/apply",
+            json={"sessionId": session_id, "measuredMl": measured_ml},
+        )
+
+    async def async_get_reservoir(self, pump_id: str) -> dict[str, Any]:
+        """Return {pumpId, remainingMl, fullMl, daysRemaining}."""
+        return await self._request("GET", f"/pumps/{pump_id}/reservoir")
+
+    async def async_refill_reservoir(self, pump_id: str) -> None:
+        await self._request("POST", f"/pumps/{pump_id}/reservoir/refill")
+
     async def _request(
         self, method: str, path: str, json: dict[str, Any] | None = None
     ) -> Any:

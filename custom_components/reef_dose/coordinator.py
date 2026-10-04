@@ -26,6 +26,14 @@ class ReefDoseCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         )
         self.client = client
 
+        # Plain local state, not polled - holds the per-pump number-entity
+        # values and in-flight calibration session ids so the matching
+        # button (manual dose / apply calibration) can read them at press
+        # time without a cross-platform entity lookup. See number.py.
+        self.manual_dose_ml: dict[str, float] = {}
+        self.calibration_measured_ml: dict[str, float] = {}
+        self.calibration_sessions: dict[str, int] = {}
+
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
             pump_ids = await self.client.async_get_pump_ids()
@@ -55,6 +63,23 @@ class ReefDoseCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 # for those, just without schedule-dependent entities.
                 pump_data["scheduleEnabled"] = None
                 pump_data["splitDoseEnabled"] = None
+
+            # Reservoir is the same dosed-pump-only restriction as schedule
+            # above (requireDosedPump) - only bother asking when schedule
+            # succeeded, rather than making a second doomed request.
+            if pump_data["scheduleEnabled"] is not None:
+                try:
+                    pump_data.update(await self.client.async_get_reservoir(pump_id))
+                except ReefDoseAuthError as err:
+                    raise UpdateFailed(f"Authentication failed: {err}") from err
+                except ReefDoseApiError:
+                    pump_data["remainingMl"] = None
+                    pump_data["fullMl"] = None
+                    pump_data["daysRemaining"] = None
+            else:
+                pump_data["remainingMl"] = None
+                pump_data["fullMl"] = None
+                pump_data["daysRemaining"] = None
 
             data[pump_id] = pump_data
 

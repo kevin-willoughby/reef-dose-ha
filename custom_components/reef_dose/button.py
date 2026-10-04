@@ -8,10 +8,11 @@ from __future__ import annotations
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DEFAULT_DOSE_ML, DOMAIN
 from .coordinator import ReefDoseCoordinator
 
 
@@ -38,11 +39,128 @@ class ReefDosePrimeButton(ButtonEntity):
         await self._coordinator.client.async_prime(self._pump_id)
 
 
+class ReefDoseManualDoseButton(ButtonEntity):
+    """Fires a one-off dose of whatever the Manual Dose Amount number holds."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Manual Dose"
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_manual_dose"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        ml = self._coordinator.manual_dose_ml.get(self._pump_id, DEFAULT_DOSE_ML)
+        await self._coordinator.client.async_manual_dose(self._pump_id, ml)
+
+
+class ReefDoseStartCalibrationButton(ButtonEntity):
+    """Starts a calibration run; stashes the returned sessionId for Apply."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Start Calibration"
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_start_calibration"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        session_id = await self._coordinator.client.async_start_calibration(self._pump_id)
+        self._coordinator.calibration_sessions[self._pump_id] = session_id
+
+
+class ReefDoseRefillReservoirButton(ButtonEntity):
+    """Resets the reservoir-remaining sensor to the full-volume number's value."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Refill Reservoir"
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_refill_reservoir"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        await self._coordinator.client.async_refill_reservoir(self._pump_id)
+        await self._coordinator.async_request_refresh()
+
+
+class ReefDoseApplyCalibrationButton(ButtonEntity):
+    """Applies the last Start Calibration session using the measured-ml number.
+
+    The firmware itself rejects a stale/missing session id (see
+    reef-dose-service's applyCalibration) - this just raises early with a
+    clearer message when Start Calibration was never pressed this session.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply Calibration"
+
+    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
+        self._coordinator = coordinator
+        self._pump_id = pump_id
+        self._attr_unique_id = f"{pump_id}_apply_calibration"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pump_id)},
+            name=f"Pump {pump_id}",
+            manufacturer="Reef Dose",
+            model="Pump",
+        )
+
+    async def async_press(self) -> None:
+        session_id = self._coordinator.calibration_sessions.get(self._pump_id)
+        if session_id is None:
+            raise HomeAssistantError(
+                f"No calibration session for pump {self._pump_id} - press Start Calibration first"
+            )
+        measured_ml = self._coordinator.calibration_measured_ml.get(self._pump_id, DEFAULT_DOSE_ML)
+        await self._coordinator.client.async_apply_calibration(
+            self._pump_id, session_id, measured_ml
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: ReefDoseCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    async_add_entities(
+    entities: list[ButtonEntity] = [
         ReefDosePrimeButton(coordinator, pump_id) for pump_id in coordinator.data
+    ]
+    entities.extend(
+        ReefDoseManualDoseButton(coordinator, pump_id) for pump_id in coordinator.data
     )
+    # Calibration and refill are dosed-pump-only, same restriction as
+    # the schedule switches in switch.py.
+    entities.extend(
+        button_cls(coordinator, pump_id)
+        for pump_id, pump in coordinator.data.items()
+        if pump.get("scheduleEnabled") is not None
+        for button_cls in (
+            ReefDoseStartCalibrationButton,
+            ReefDoseApplyCalibrationButton,
+            ReefDoseRefillReservoirButton,
+        )
+    )
+
+    async_add_entities(entities)
