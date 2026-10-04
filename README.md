@@ -185,7 +185,7 @@ Part 2 always kept in sync with whichever variant is active.
    - **Always-On Pump IDs**: `4` (Part 2)
    - **Seasonal Default Helper**: the `input_boolean` created in step 1
 
-The automation runs at :45 past every hour, deciding which variant doses the upcoming hour, and
+The automation runs at :50 past every hour, deciding which variant doses the upcoming hour, and
 can be tested immediately via its own "Run actions" button in the HA UI rather than waiting for a
 real trigger.
 

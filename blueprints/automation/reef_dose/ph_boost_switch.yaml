@@ -1,7 +1,7 @@
 blueprint:
   name: Reef Dose - pH-Boost Part 1 Variant Switch
   description: >-
-    Implements requirements.md Section 6: once an hour, at :45 past, decides
+    Implements requirements.md Section 6: once an hour, at :50 past, decides
     which Part 1 variant (no-boost or pH-boost) should dose the *next* hour,
     based on the Apex's real-time pH and time of day, then syncs the
     group's shared schedule (template) to whichever variant is chosen and
@@ -81,7 +81,7 @@ blueprint:
 
 trigger:
   - platform: time_pattern
-    minutes: 45
+    minutes: 50
 
 condition: []
 
