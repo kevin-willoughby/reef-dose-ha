@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_DOSE_ML, DOMAIN
 from .coordinator import ReefDoseCoordinator
+from .groups_coordinator import ReefDoseGroupsCoordinator
 
 
 class ReefDosePrimeButton(ButtonEntity):
@@ -178,10 +179,43 @@ class ReefDoseApplyCalibrationButton(ButtonEntity):
         await self._coordinator.async_request_refresh()
 
 
+class ReefDoseApplyGroupAdjustmentButton(ButtonEntity):
+    """Applies the Manual Overall Adjustment number's pending delta to
+    one group, compounding it onto the group's CURRENT scale (not the
+    fixed 100% base) - requirements.md Section 5. Resets the pending
+    delta back to 0 once applied, same as Start/Apply Calibration
+    clearing its session.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply Adjustment"
+
+    def __init__(self, coordinator: ReefDoseGroupsCoordinator, group_id: str) -> None:
+        self._coordinator = coordinator
+        self._group_id = group_id
+        self._attr_unique_id = f"group_{group_id}_apply_adjustment"
+        group_name = coordinator.data.get(group_id, {}).get("name", group_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"group_{group_id}")},
+            name=group_name,
+            manufacturer="Reef Dose",
+            model="Scaling Group",
+        )
+
+    async def async_press(self) -> None:
+        delta_percent = self._coordinator.pending_adjustment.get(self._group_id, 0.0)
+        current_scale = self._coordinator.data.get(self._group_id, {}).get("scalePercent", 100.0)
+        new_scale = round(current_scale * (1 + delta_percent / 100), 2)
+        await self._coordinator.client.async_update_group(self._group_id, scalePercent=new_scale)
+        self._coordinator.pending_adjustment[self._group_id] = 0.0
+        await self._coordinator.async_request_refresh()
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][entry.entry_id].coordinator
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data.coordinator
 
     entities: list[ButtonEntity] = [
         ReefDosePrimeButton(coordinator, pump_id) for pump_id in coordinator.data
@@ -201,6 +235,13 @@ async def async_setup_entry(
             ReefDoseRefillReservoirButton,
             ReefDoseAutoDivideButton,
         )
+    )
+    # Groups are dynamic (see groups_coordinator.py) - only ones that
+    # exist at setup time get an entity; a group created later via the
+    # API needs a reload to show up here.
+    entities.extend(
+        ReefDoseApplyGroupAdjustmentButton(data.groups_coordinator, group_id)
+        for group_id in data.groups_coordinator.data
     )
 
     async_add_entities(entities)

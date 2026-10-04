@@ -1,14 +1,13 @@
 """Number platform for Reef Dose — manual dose amount, calibration measured
-ml, auto-divide daily total, and scaling-group percentages.
+ml, auto-divide daily total, and a per-group manual overall adjustment.
 
-The per-pump ones (manual dose, calibration, daily total) are plain
-values held on the pump coordinator (not polled from the device), read
-by the matching button in button.py at press time - see
-button.py's ReefDoseManualDoseButton / ReefDoseApplyCalibrationButton /
-ReefDoseAutoDivideButton. The group-scale one is different: it writes
-straight through to reef-dose-service on change (no separate "Apply"
-button), since a group's percentage has no device-side equivalent to
-wait for - see ReefDoseGroupScaleNumber below.
+Every one of these is a plain pending value held on a coordinator (not
+polled from the device), read by a matching button in button.py at
+press time - see ReefDoseManualDoseButton / ReefDoseApplyCalibrationButton
+/ ReefDoseAutoDivideButton / ReefDoseApplyGroupAdjustmentButton. None of
+these write straight through on change; the resulting absolute group
+scale is exposed read-only instead, as a sensor (sensor.py's
+ReefDoseGroupScaleSensor).
 """
 from __future__ import annotations
 
@@ -17,7 +16,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_DOSE_ML, DOMAIN
 from .coordinator import ReefDoseCoordinator
@@ -114,29 +112,37 @@ class ReefDoseDailyTotalMlNumber(NumberEntity):
         self.async_write_ha_state()
 
 
-class ReefDoseGroupScaleNumber(CoordinatorEntity[ReefDoseGroupsCoordinator], NumberEntity):
-    """A scaling group's current percentage (requirements.md Section 5).
+class ReefDoseGroupAdjustmentNumber(NumberEntity):
+    """Pending "Manual Overall Adjustment" delta (%) for one scaling
+    group - requirements.md Section 5, named to match the existing
+    Dosetronic app's own term for this exact action (requirements.md
+    Section 3).
 
-    Unlike every number entity above, this writes straight through to
-    reef-dose-service on change instead of waiting for a separate
-    button - there's no device-side action to defer to, the PATCH
-    itself IS the rescale (reef-dose-service's GroupsService recomputes
-    every member pump's effective schedule from its stored base and
-    pushes it to the device as part of handling the request).
+    This holds the DELTA to apply, not the group's current absolute
+    scale - entering -10 and pressing Apply (button.py's
+    ReefDoseApplyGroupAdjustmentButton) decreases every member pump's
+    full 24-hour schedule by 10% of whatever it's CURRENTLY at (not
+    10 percentage points off the fixed 100% base), preserving the
+    ratio between pumps in the group. Compounds like any "adjust by
+    X%" control: -10 applied twice takes a group from 100% -> 90% ->
+    81%, not straight to 80%. Resets to 0 after each Apply - see
+    ReefDoseGroupScaleSensor in sensor.py for the resulting absolute
+    value.
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Scale"
-    _attr_native_min_value = 0
+    _attr_name = "Manual Overall Adjustment"
+    _attr_native_min_value = -100
     _attr_native_max_value = 1000
     _attr_native_step = 1
     _attr_native_unit_of_measurement = "%"
     _attr_mode = NumberMode.BOX
 
     def __init__(self, coordinator: ReefDoseGroupsCoordinator, group_id: str) -> None:
-        super().__init__(coordinator)
         self._group_id = group_id
-        self._attr_unique_id = f"group_{group_id}_scale"
+        self._store = coordinator.pending_adjustment
+        self._store.setdefault(group_id, 0.0)
+        self._attr_unique_id = f"group_{group_id}_adjustment"
         # Name is the group's own name at setup time - like pump
         # devices' fixed "Pump N" name (see switch.py), a rename via
         # the API won't retroactively update this until a reload.
@@ -149,17 +155,12 @@ class ReefDoseGroupScaleNumber(CoordinatorEntity[ReefDoseGroupsCoordinator], Num
         )
 
     @property
-    def native_value(self) -> float | None:
-        group = self.coordinator.data.get(self._group_id)
-        return group.get("scalePercent") if group else None
-
-    @property
-    def available(self) -> bool:
-        return super().available and self._group_id in self.coordinator.data
+    def native_value(self) -> float:
+        return self._store[self._group_id]
 
     async def async_set_native_value(self, value: float) -> None:
-        await self.coordinator.client.async_update_group(self._group_id, scalePercent=value)
-        await self.coordinator.async_request_refresh()
+        self._store[self._group_id] = value
+        self.async_write_ha_state()
 
 
 async def async_setup_entry(
@@ -184,7 +185,7 @@ async def async_setup_entry(
     # exist at setup time get an entity; a group created later via the
     # API needs a reload to show up here.
     entities.extend(
-        ReefDoseGroupScaleNumber(data.groups_coordinator, group_id)
+        ReefDoseGroupAdjustmentNumber(data.groups_coordinator, group_id)
         for group_id in data.groups_coordinator.data
     )
 

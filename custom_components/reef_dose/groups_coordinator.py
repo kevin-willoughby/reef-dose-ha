@@ -42,6 +42,12 @@ class ReefDoseGroupsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]
         )
         self.client = client
 
+        # Pending "Manual Overall Adjustment" delta (%) per group, not
+        # polled - see number.py's ReefDoseGroupAdjustmentNumber /
+        # button.py's ReefDoseApplyGroupAdjustmentButton. Reset to 0
+        # after each Apply.
+        self.pending_adjustment: dict[str, float] = {}
+
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
             groups = await self.client.async_get_groups()

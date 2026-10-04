@@ -82,15 +82,23 @@ cards:
 ### Scaling groups
 
 One additional Home Assistant device per *scaling group* (requirements.md Section 5), named after
-the group, each with a single **Scale** number entity (0–1000%). Unlike every pump number entity
-above, this one writes straight through on change — there's no separate "Apply" button, since the
-`PATCH /groups/:id` call itself is what rescales every member pump's schedule on
-`reef-dose-service`'s side.
+the group, each with:
+
+- **Manual Overall Adjustment** number (−100 to 1000%, matching the existing Dosetronic app's own
+  name for this exact action) — the delta to apply, not the group's absolute scale. Enter `-10` and
+  press **Apply Adjustment** to decrease every member pump's schedule by 10% of whatever it's
+  *currently* at (not 10 percentage points off a fixed 100% base) — compounds like any "adjust by
+  X%" control: entering `-10` twice takes a group from 100% → 90% → 81%, not straight to 80%.
+  Resets to 0 after each Apply.
+- **Apply Adjustment** button — applies the pending delta above.
+- **Current Scale** sensor (read-only) — the resulting absolute percentage (100 = the group's
+  unscaled base), so you can see what the adjustments have compounded to without doing the math
+  yourself.
 
 Groups are genuinely dynamic — created via `reef-dose-service`'s API (`POST /groups/:id`), not
 hardcoded here or there (pumps 5/6 are still generic placeholders as of this writing, so group
-membership can't be derived from product assignments yet). This integration only creates a Scale
-entity for groups that already exist when it starts up; **a group created later needs a reload of
+membership can't be derived from product assignments yet). This integration only creates these
+entities for groups that already exist when it starts up; **a group created later needs a reload of
 this integration** (Settings → Devices & Services → Reef Dose → ⋮ → Reload) to show up. Creating a
 group itself isn't exposed from HA yet — use the API directly, e.g.:
 

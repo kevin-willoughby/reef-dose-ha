@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import ReefDoseCoordinator
+from .groups_coordinator import ReefDoseGroupsCoordinator
 
 
 class ReefDoseLabelSensor(CoordinatorEntity[ReefDoseCoordinator], SensorEntity):
@@ -108,10 +109,42 @@ class ReefDoseReservoirSensor(CoordinatorEntity[ReefDoseCoordinator], SensorEnti
         return pump.get(self.entity_description.field)
 
 
+class ReefDoseGroupScaleSensor(CoordinatorEntity[ReefDoseGroupsCoordinator], SensorEntity):
+    """Read-only current absolute scale for one group (requirements.md
+    Section 5) - the value number.py's Manual Overall Adjustment
+    deltas actually compound onto. 100 is the group's unscaled base.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Current Scale"
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, coordinator: ReefDoseGroupsCoordinator, group_id: str) -> None:
+        super().__init__(coordinator)
+        self._group_id = group_id
+        self._attr_unique_id = f"group_{group_id}_current_scale"
+        # Name is the group's own name at setup time - like pump
+        # devices' fixed "Pump N" name above, a rename via the API
+        # won't retroactively update this until a reload.
+        group_name = coordinator.data.get(group_id, {}).get("name", group_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"group_{group_id}")},
+            name=group_name,
+            manufacturer="Reef Dose",
+            model="Scaling Group",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        group = self.coordinator.data.get(self._group_id)
+        return group.get("scalePercent") if group else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][entry.entry_id].coordinator
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data.coordinator
 
     entities: list[SensorEntity] = [
         ReefDoseLabelSensor(coordinator, pump_id) for pump_id in coordinator.data
@@ -124,6 +157,13 @@ async def async_setup_entry(
         for pump_id, pump in coordinator.data.items()
         if pump.get("remainingMl") is not None
         for description in RESERVOIR_SENSOR_DESCRIPTIONS
+    )
+    # Groups are dynamic (see groups_coordinator.py) - only ones that
+    # exist at setup time get an entity; a group created later via the
+    # API needs a reload to show up here.
+    entities.extend(
+        ReefDoseGroupScaleSensor(data.groups_coordinator, group_id)
+        for group_id in data.groups_coordinator.data
     )
 
     async_add_entities(entities)
