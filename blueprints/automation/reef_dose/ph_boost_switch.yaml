@@ -107,32 +107,45 @@ variables:
        if ph_fresh else seasonal_boost }}
 
 action:
+  # Disable the losing variant BEFORE enabling the winner, and tolerate a
+  # transient failure on each step (reef-dose-service talks to the ESP32
+  # over ESPHome's native API - a single ack can time out even when the
+  # command reached the device). This ordering means if anything in here
+  # fails partway, the worst case is both variants disabled (no dose this
+  # hour) rather than both enabled (double dose) - fail safe, not fail
+  # dangerous.
   - choose:
       - conditions:
           - "{{ decision_boost }}"
         sequence:
           - service: reef_dose.update_schedule
-            data:
-              pump_id: "{{ boost_pump }}"
-              schedule_enabled: true
-          - service: reef_dose.update_schedule
+            continue_on_error: true
             data:
               pump_id: "{{ no_boost_pump }}"
               schedule_enabled: false
+          - service: reef_dose.update_schedule
+            continue_on_error: true
+            data:
+              pump_id: "{{ boost_pump }}"
+              schedule_enabled: true
           - service: reef_dose.sync_group_member
+            continue_on_error: true
             data:
               group_id: "{{ target_group_id }}"
               pump_id: "{{ boost_pump }}"
     default:
       - service: reef_dose.update_schedule
-        data:
-          pump_id: "{{ no_boost_pump }}"
-          schedule_enabled: true
-      - service: reef_dose.update_schedule
+        continue_on_error: true
         data:
           pump_id: "{{ boost_pump }}"
           schedule_enabled: false
+      - service: reef_dose.update_schedule
+        continue_on_error: true
+        data:
+          pump_id: "{{ no_boost_pump }}"
+          schedule_enabled: true
       - service: reef_dose.sync_group_member
+        continue_on_error: true
         data:
           group_id: "{{ target_group_id }}"
           pump_id: "{{ no_boost_pump }}"
@@ -140,6 +153,7 @@ action:
       for_each: "{{ always_on_pumps }}"
       sequence:
         - service: reef_dose.sync_group_member
+          continue_on_error: true
           data:
             group_id: "{{ target_group_id }}"
             pump_id: "{{ repeat.item }}"
