@@ -76,8 +76,12 @@ class ReefDoseClient:
         """Return {pumpId, remainingMl, fullMl, daysRemaining}."""
         return await self._request("GET", f"/pumps/{pump_id}/reservoir")
 
-    async def async_refill_reservoir(self, pump_id: str) -> None:
-        await self._request("POST", f"/pumps/{pump_id}/reservoir/refill")
+    async def async_refill_reservoir(self, pump_id: str, full_ml: float) -> None:
+        """full_ml is required by reef-dose-service - a refill always
+        records what the reservoir was actually just filled to, not a
+        silent re-assertion of whatever was already configured.
+        """
+        await self._request("POST", f"/pumps/{pump_id}/reservoir/refill", json={"fullMl": full_ml})
 
     async def async_auto_divide_schedule(self, pump_id: str, daily_total_ml: float) -> dict[str, Any]:
         """Evenly split daily_total_ml across all 24 hourly slots; returns the resulting schedule."""

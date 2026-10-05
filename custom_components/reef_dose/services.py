@@ -40,9 +40,11 @@ ATTR_DAILY_TOTAL_ML = "daily_total_ml"
 ATTR_DELTA_PERCENT = "delta_percent"
 ATTR_AUTO_SYNC = "auto_sync"
 ATTR_LIMIT = "limit"
+ATTR_FULL_ML = "full_ml"
 
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_GET_RESERVOIR = "get_reservoir"
+SERVICE_REFILL_RESERVOIR = "refill_reservoir"
 SERVICE_GET_AUDIT_LOG = "get_audit_log"
 SERVICE_UPDATE_SCHEDULE = "update_schedule"
 SERVICE_AUTO_DIVIDE_SCHEDULE = "auto_divide_schedule"
@@ -62,6 +64,13 @@ _HOUR_KEYS = [f"{h:02d}" for h in range(24)]
 GET_SCHEDULE_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
 
 GET_RESERVOIR_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
+
+REFILL_RESERVOIR_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PUMP_ID): cv.string,
+        vol.Required(ATTR_FULL_ML): vol.Coerce(float),
+    }
+)
 
 UPDATE_SCHEDULE_SCHEMA = vol.Schema(
     {
@@ -191,6 +200,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         client = _get_client(hass)
         return await _call(client.async_get_reservoir(call.data[ATTR_PUMP_ID]))
 
+    async def refill_reservoir(call: ServiceCall) -> None:
+        client = _get_client(hass)
+        await _call(client.async_refill_reservoir(call.data[ATTR_PUMP_ID], call.data[ATTR_FULL_ML]))
+        await _refresh_pumps()
+
     async def update_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
         pump_id = call.data[ATTR_PUMP_ID]
@@ -318,6 +332,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         get_reservoir,
         schema=GET_RESERVOIR_SCHEMA,
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_REFILL_RESERVOIR, refill_reservoir, schema=REFILL_RESERVOIR_SCHEMA
     )
     hass.services.async_register(
         DOMAIN,

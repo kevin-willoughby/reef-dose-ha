@@ -24,6 +24,29 @@ get_reservoir:
       selector:
         text:
 
+refill_reservoir:
+  name: Refill Reservoir
+  description: >-
+    Writes a new full-volume (full_ml) then resets the reservoir-remaining
+    sensor to it - full_ml is required, recording what the reservoir was
+    actually just filled to rather than re-asserting a stale configured
+    size. Meant for the reef-dose-card custom Lovelace card's Refill
+    button, but usable from automations too.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    full_ml:
+      required: true
+      example: 500
+      selector:
+        number:
+          min: 0
+          max: 20000
+          unit_of_measurement: mL
+
 update_schedule:
   name: Update Schedule
   description: >-

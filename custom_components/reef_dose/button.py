@@ -89,28 +89,6 @@ class ReefDoseStartCalibrationButton(ButtonEntity):
         await self._coordinator.async_request_refresh()
 
 
-class ReefDoseRefillReservoirButton(ButtonEntity):
-    """Resets the reservoir-remaining sensor to the full-volume number's value."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Refill Reservoir"
-
-    def __init__(self, coordinator: ReefDoseCoordinator, pump_id: str) -> None:
-        self._coordinator = coordinator
-        self._pump_id = pump_id
-        self._attr_unique_id = f"{pump_id}_refill_reservoir"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, pump_id)},
-            name=f"Pump {pump_id}",
-            manufacturer="Reef Dose",
-            model="Pump",
-        )
-
-    async def async_press(self) -> None:
-        await self._coordinator.client.async_refill_reservoir(self._pump_id)
-        await self._coordinator.async_request_refresh()
-
-
 class ReefDoseAutoDivideButton(ButtonEntity):
     """Evenly splits the Daily Total (Auto-Divide) number across all 24
     hourly slots (requirements.md Section 3) and writes it straight to
@@ -299,8 +277,11 @@ async def async_setup_entry(
     entities.extend(
         ReefDoseManualDoseButton(coordinator, pump_id) for pump_id in coordinator.data
     )
-    # Calibration and refill are dosed-pump-only, same restriction as
-    # the schedule switches in switch.py.
+    # Calibration and auto-divide are dosed-pump-only, same restriction
+    # as the schedule switches in switch.py. Refill has no button here
+    # any more - it always needs a new full-volume value (reef_dose.
+    # refill_reservoir service, see services.py), which a plain
+    # ButtonEntity can't supply.
     entities.extend(
         button_cls(coordinator, pump_id)
         for pump_id, pump in coordinator.data.items()
@@ -308,7 +289,6 @@ async def async_setup_entry(
         for button_cls in (
             ReefDoseStartCalibrationButton,
             ReefDoseApplyCalibrationButton,
-            ReefDoseRefillReservoirButton,
             ReefDoseAutoDivideButton,
         )
     )

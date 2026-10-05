@@ -32,13 +32,15 @@ not derived from whatever product is currently assigned to that pump. Each has:
   pressing Start raises a clear error instead of silently no-op'ing. The Calibrating binary sensor
   exists specifically to drive a **guided** Lovelace flow — see below — rather than always showing
   all three controls at once.
-- **Reservoir Remaining** / **Reservoir Full Volume** (diagnostic) / **Reservoir Days Remaining**
-  sensors + **Refill Reservoir** button — only for pumps with a product assigned. Both
-  Remaining and Days Remaining are whole numbers, rounded *down* ("do I need to refill soon"
-  should never read more time/volume than is actually left) and projected from the pump's
-  *current* schedule total (not historical usage — the device tracks no such history), so Days
-  Remaining is `unknown` whenever the schedule is off or every slot is 0ml rather than showing a
-  misleading number.
+- **Reservoir Remaining** / **Reservoir Full Volume** (diagnostic) / **Reservoir Days Remaining** /
+  **Dosed Today** sensors — only for pumps with a product assigned. Remaining and Days Remaining are
+  whole numbers, rounded *down* ("do I need to refill soon" should never read more time/volume than
+  is actually left) and projected from the pump's *current* schedule total (not historical usage —
+  the device tracks no such history), so Days Remaining is `unknown` whenever every slot is 0ml,
+  regardless of whether the schedule switch is currently on. There's no plain Refill button here —
+  refilling always needs a new full-volume figure (how much the reservoir actually holds now), which
+  a parameterless button can't supply. Use the **`reef_dose.refill_reservoir` service** (`pump_id`,
+  `full_ml`) instead — reef-dose-card's Dashboard tab's Refill button is the normal way to call it.
 - **Daily Total (Auto-Divide)** number + **Apply Auto-Divide Schedule** button — only for pumps
   with a product assigned. Give it a total ml/day and press the button to evenly split that across
   all 24 hourly slots and write it straight to the device — the schedule's *starting point*, not
