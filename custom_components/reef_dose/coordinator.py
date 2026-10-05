@@ -85,10 +85,12 @@ class ReefDoseCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                 except ReefDoseApiError:
                     pump_data["remainingMl"] = None
                     pump_data["fullMl"] = None
+                    pump_data["dosedTodayMl"] = None
                     pump_data["daysRemaining"] = None
             else:
                 pump_data["remainingMl"] = None
                 pump_data["fullMl"] = None
+                pump_data["dosedTodayMl"] = None
                 pump_data["daysRemaining"] = None
 
             data[pump_id] = pump_data

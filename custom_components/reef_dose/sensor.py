@@ -65,6 +65,16 @@ RESERVOIR_SENSOR_DESCRIPTIONS: tuple[ReefDoseReservoirSensorDescription, ...] = 
         native_unit_of_measurement="mL",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # Running total since the firmware's own daily reset (23:59:00) -
+    # see reef-dose-service's PumpsService.getReservoir / the
+    # dosed-pump.yaml dosed_today_ml global. A real measured total,
+    # not a schedule projection like daysRemaining below.
+    ReefDoseReservoirSensorDescription(
+        key="dosed_today",
+        name="Dosed Today",
+        field="dosedTodayMl",
+        native_unit_of_measurement="mL",
+    ),
     # Projected from the pump's CURRENT schedule total, not historical
     # usage - see reef-dose-service's PumpsService.getReservoir. None
     # (unknown) when the schedule is off or every slot is 0ml, not a

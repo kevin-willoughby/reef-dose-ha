@@ -11,6 +11,19 @@ get_schedule:
       selector:
         text:
 
+get_reservoir:
+  name: Get Reservoir
+  description: >-
+    Reads one pump's reservoir state (remainingMl, fullMl, dosedTodayMl,
+    daysRemaining). Response-only - meant for the reef-dose-card custom
+    Lovelace card, not automations.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+
 update_schedule:
   name: Update Schedule
   description: >-
