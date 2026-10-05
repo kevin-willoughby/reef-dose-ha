@@ -164,8 +164,14 @@ automation that decides which variant should be active right now (see Blueprint 
 
 `blueprints/automation/reef_dose/ph_boost_switch.yaml` implements requirements.md §6 — the
 ReefZelements use case above, made concrete: Part 1 has a no-boost pump and a pH-boost pump that
-must never both be enabled at once, decided hourly from the Apex's real pH and time of day, with
-Part 2 always kept in sync with whichever variant is active.
+must never both be enabled at once, decided hourly from the Apex's real pH and time of day.
+
+Only ever flips the two variants' `schedule_enabled` switches — it does **not** push schedule slot
+values. The group's slot template only changes when you edit it directly (rare, manual), so
+re-syncing all ~50 slots on every hourly decision was pure overhead and the single biggest source
+of exposure to reef-dose-service's intermittent ESP32 command timeouts (confirmed live,
+2026-10-05). If you edit the group's schedule/scale while a variant is inactive, sync that variant
+explicitly (`reef_dose.sync_group_member`/`sync_group`) before it's next selected.
 
 **Setup:**
 
@@ -180,10 +186,8 @@ Part 2 always kept in sync with whichever variant is active.
 3. Settings → Automations & Scenes → Blueprints → Import Blueprint, point it at this file (or the
    raw GitHub URL once pushed), then create an automation from it with:
    - **Apex pH Sensor**: `sensor.apex_ph`
-   - **Group ID**: `Reef Zelements`
    - **No-Boost Pump ID**: `1`
    - **pH-Boost Pump ID**: `2`
-   - **Always-On Pump IDs**: `4` (Part 2)
    - **pH Boost Enabled**: the `input_boolean` created in step 1
 
 The automation runs at :50 past every hour, deciding which variant doses the upcoming hour, and
