@@ -247,6 +247,27 @@ apply_pump_adjustment:
           max: 900
           unit_of_measurement: "%"
 
+apply_group_adjustment:
+  name: Apply Group Adjustment
+  description: >-
+    "Manual Overall Adjustment" for a scaling group - a percentage that
+    compounds onto whatever the group is currently effectively dosing (-10
+    means 10% less than now, not an absolute target), pushed to every
+    current member pump. Resets the group's scale_percent to 100 afterward.
+  fields:
+    group_id:
+      required: true
+      example: complete-parts
+      selector:
+        text:
+    delta_percent:
+      required: true
+      selector:
+        number:
+          min: -100
+          max: 900
+          unit_of_measurement: "%"
+
 get_group_schedule:
   name: Get Group Schedule
   description: >-

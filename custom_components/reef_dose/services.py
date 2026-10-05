@@ -53,6 +53,7 @@ SERVICE_GET_AUDIT_LOG = "get_audit_log"
 SERVICE_UPDATE_SCHEDULE = "update_schedule"
 SERVICE_AUTO_DIVIDE_SCHEDULE = "auto_divide_schedule"
 SERVICE_APPLY_PUMP_ADJUSTMENT = "apply_pump_adjustment"
+SERVICE_APPLY_GROUP_ADJUSTMENT = "apply_group_adjustment"
 SERVICE_GET_GROUPS = "get_groups"
 SERVICE_CREATE_GROUP = "create_group"
 SERVICE_UPDATE_GROUP = "update_group"
@@ -134,6 +135,13 @@ DELETE_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_GROUP_ID): cv.string})
 APPLY_PUMP_ADJUSTMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_PUMP_ID): cv.string,
+        vol.Required(ATTR_DELTA_PERCENT): vol.Coerce(float),
+    }
+)
+
+APPLY_GROUP_ADJUSTMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_GROUP_ID): cv.string,
         vol.Required(ATTR_DELTA_PERCENT): vol.Coerce(float),
     }
 )
@@ -308,6 +316,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await _refresh_pumps()
         return result
 
+    async def apply_group_adjustment(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        result = await _call(
+            client.async_apply_group_adjustment(call.data[ATTR_GROUP_ID], call.data[ATTR_DELTA_PERCENT])
+        )
+        await _refresh_groups()
+        await _refresh_pumps()
+        return result
+
     async def get_group_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
         return await _call(client.async_get_group_schedule(call.data[ATTR_GROUP_ID]))
@@ -411,6 +428,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_APPLY_PUMP_ADJUSTMENT,
         apply_pump_adjustment,
         schema=APPLY_PUMP_ADJUSTMENT_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_APPLY_GROUP_ADJUSTMENT,
+        apply_group_adjustment,
+        schema=APPLY_GROUP_ADJUSTMENT_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(

@@ -143,6 +143,16 @@ class ReefDoseClient:
             "POST", f"/pumps/{pump_id}/adjustment", json={"deltaPercent": delta_percent}
         )
 
+    async def async_apply_group_adjustment(self, group_id: str, delta_percent: float) -> dict[str, Any]:
+        """Group-level equivalent of async_apply_pump_adjustment: applies a
+        compounding percent delta (relative to whatever the group is
+        CURRENTLY effectively dosing, computed server-side) to every member
+        pump's schedule, and resets the group's scalePercent to 100.
+        """
+        return await self._request(
+            "POST", f"/groups/{group_id}/adjustment", json={"deltaPercent": delta_percent}
+        )
+
     async def async_get_audit_log(
         self,
         pump_id: str | None = None,
