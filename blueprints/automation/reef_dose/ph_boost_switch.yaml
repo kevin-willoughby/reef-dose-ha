@@ -3,19 +3,23 @@ blueprint:
   description: >-
     Implements requirements.md Section 6: once an hour, at :50 past, decides
     which Part 1 variant (no-boost or pH-boost) should dose the *next* hour,
-    and enables it while disabling the other - never both at once. Only ever
-    toggles the two variants' schedule_enabled switches - it does NOT push
-    schedule slot values. The two variants (and any other group member, e.g.
-    Part 2) are kept at identical slot values by editing the group's
-    schedule directly (reef_dose.update_group_schedule /
-    sync_group_member / sync_group) whenever that actually changes, which
-    is rare and manual - re-pushing all 24 slots on every hourly switch
-    decision was pure overhead (confirmed live, 2026-10-05: cut this
-    automation from ~50 device round-trips down to 2, removing the biggest
-    source of exposure to intermittent command timeouts). If you edit the
-    group's schedule/scale while a variant is inactive, sync that variant
-    explicitly before it's next selected - this blueprint won't do it for
-    you anymore.
+    and enables it while disabling the other - never both at once.
+
+    Talks directly to HA's native ESPHome integration's switch entities
+    (switch.turn_on/switch.turn_off) - NOT reef-dose-service's
+    reef_dose.update_schedule. Changed 2026-10-05 after reef-dose-service's
+    Node/esphome-client write path proved unreliable in production (a stuck
+    connection that silently broke every write until a manual restart,
+    confirmed live, multiple root-cause attempts over one day didn't fully
+    resolve it). The native integration uses aioesphomeapi (Python, the
+    same client Home Assistant's ESPHome support is built on) and was 100%
+    reliable in every side-by-side test run against it that day. Only ever
+    toggles schedule_enabled - it does NOT push schedule slot values (see
+    the git history for why that was dropped as unnecessary overhead
+    separately, 2026-10-05): the two variants are kept at identical slot
+    values by editing the group's schedule directly in reef-dose-service
+    (reef_dose.update_group_schedule / sync_group_member / sync_group)
+    whenever that actually changes, which is rare and manual.
 
     Gated by a manual "pH Boost Enabled" input_boolean you create yourself
     (Settings -> Devices & Services -> Helpers -> Toggle) - this is the
@@ -37,16 +41,24 @@ blueprint:
       selector:
         entity:
           domain: sensor
-    no_boost_pump_id:
-      name: No-Boost Pump ID
-      description: Physical pump number (1-6) for Part 1 WITHOUT pH boost.
+    no_boost_switch_entity:
+      name: No-Boost Schedule Enabled Switch
+      description: >-
+        The native ESPHome "Schedule Enabled" switch entity for Part 1
+        WITHOUT pH boost (Settings -> Devices & Services -> ESPHome ->
+        Reef Dose -> find the pump's "Schedule Enabled" control -> gear
+        icon -> Entity ID).
       selector:
-        text:
-    boost_pump_id:
-      name: pH-Boost Pump ID
-      description: Physical pump number (1-6) for Part 1 WITH pH boost.
+        entity:
+          domain: switch
+    boost_switch_entity:
+      name: pH-Boost Schedule Enabled Switch
+      description: >-
+        The native ESPHome "Schedule Enabled" switch entity for Part 1
+        WITH pH boost.
       selector:
-        text:
+        entity:
+          domain: switch
     ph_boost_enabled_helper:
       name: pH Boost Enabled
       description: >-
@@ -81,8 +93,8 @@ variables:
   ph_entity: !input apex_ph_entity
   stale_after_minutes: !input stale_after_minutes
   ph_boost_helper: !input ph_boost_enabled_helper
-  no_boost_pump: !input no_boost_pump_id
-  boost_pump: !input boost_pump_id
+  no_boost_switch: !input no_boost_switch_entity
+  boost_switch: !input boost_switch_entity
   ph_available: "{{ states(ph_entity) not in ['unknown', 'unavailable', none] }}"
   ph_age_minutes: >-
     {{ ((now() - states[ph_entity].last_changed).total_seconds() / 60)
@@ -98,54 +110,47 @@ variables:
     {{ false if not boost_in_season else
        (((ph_value < 8.3) or (now().hour >= 20 and ph_value < 8.4))
         if ph_fresh else true) }}
-  # Attached to every update_schedule call below as `context` - stored
-  # verbatim in reef-dose-service's audit log alongside the before/
-  # after switch values, so "pump 2 turned on at 14:50" and "because
-  # pH read 8.18, fresh, boost season was on" end up in the same
-  # record instead of the why being lost the moment this run ends.
-  decision_context:
-    ph: "{{ ph_value }}"
-    ph_fresh: "{{ ph_fresh }}"
-    boost_in_season: "{{ boost_in_season }}"
-    decision: "{{ 'boost' if decision_boost else 'no_boost' }}"
 
 action:
-  # Disable the losing variant BEFORE enabling the winner, and tolerate a
-  # transient failure on each step (reef-dose-service talks to the ESP32
-  # over ESPHome's native API - a single ack can time out even when the
-  # command reached the device). This ordering means if anything in here
-  # fails partway, the worst case is both variants disabled (no dose this
-  # hour) rather than both enabled (double dose) - fail safe, not fail
-  # dangerous. Only two calls per run now - no schedule-slot sync (see
-  # blueprint description for why).
+  # Disable the losing variant BEFORE enabling the winner. This ordering
+  # means if anything in here fails partway, the worst case is both
+  # variants disabled (no dose this hour) rather than both enabled
+  # (double dose) - fail safe, not fail dangerous. continue_on_error
+  # kept even though the native switch services have proven reliable in
+  # testing - cheap insurance, not evidence they're expected to fail.
   - choose:
       - conditions:
           - "{{ decision_boost }}"
         sequence:
-          - service: reef_dose.update_schedule
+          - service: switch.turn_off
             continue_on_error: true
-            data:
-              pump_id: "{{ no_boost_pump }}"
-              schedule_enabled: false
-              context: "{{ decision_context }}"
-          - service: reef_dose.update_schedule
+            target:
+              entity_id: "{{ no_boost_switch }}"
+          - service: switch.turn_on
             continue_on_error: true
-            data:
-              pump_id: "{{ boost_pump }}"
-              schedule_enabled: true
-              context: "{{ decision_context }}"
+            target:
+              entity_id: "{{ boost_switch }}"
     default:
-      - service: reef_dose.update_schedule
+      - service: switch.turn_off
         continue_on_error: true
-        data:
-          pump_id: "{{ boost_pump }}"
-          schedule_enabled: false
-          context: "{{ decision_context }}"
-      - service: reef_dose.update_schedule
+        target:
+          entity_id: "{{ boost_switch }}"
+      - service: switch.turn_on
         continue_on_error: true
-        data:
-          pump_id: "{{ no_boost_pump }}"
-          schedule_enabled: true
-          context: "{{ decision_context }}"
+        target:
+          entity_id: "{{ no_boost_switch }}"
+  # Native switch.turn_on/turn_off don't accept arbitrary context data
+  # the way reef_dose.update_schedule did - this replaces that audit
+  # trail (pH reading, freshness, season, decision) with a logbook
+  # entry, so "why did it pick boost this time" stays visible in HA's
+  # own Logbook against the switch that changed.
+  - service: logbook.log
+    continue_on_error: true
+    data:
+      name: pH-Boost decision
+      message: >-
+        {{ 'boost' if decision_boost else 'no_boost' }} - pH={{ ph_value }},
+        fresh={{ ph_fresh }}, season={{ boost_in_season }}
+      entity_id: "{{ boost_switch if decision_boost else no_boost_switch }}"
 
 mode: single
