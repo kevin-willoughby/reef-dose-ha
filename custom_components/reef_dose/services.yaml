@@ -246,3 +246,30 @@ sync_group:
       example: complete-parts
       selector:
         text:
+
+get_audit_log:
+  name: Get Audit Log
+  description: >-
+    Reads recent pump/group write history (newest first) from
+    reef-dose-service's audit log - what changed, when, and any context the
+    caller attached (e.g. the pH-boost blueprint's live pH reading and
+    decision). Response-only; call from Developer Tools -> Actions to view it,
+    or from a future dashboard card.
+  fields:
+    pump_id:
+      description: Only entries for this physical pump (1-6). Omit for every pump.
+      example: "1"
+      selector:
+        text:
+    group_id:
+      description: Only entries for this scaling group. Omit for every group.
+      example: Reef Zelements
+      selector:
+        text:
+    limit:
+      description: Maximum number of entries to return (newest first). Default 200.
+      example: 20
+      selector:
+        number:
+          min: 1
+          max: 1000

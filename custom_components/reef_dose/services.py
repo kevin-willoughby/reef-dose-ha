@@ -39,8 +39,10 @@ ATTR_CONTEXT = "context"
 ATTR_DAILY_TOTAL_ML = "daily_total_ml"
 ATTR_DELTA_PERCENT = "delta_percent"
 ATTR_AUTO_SYNC = "auto_sync"
+ATTR_LIMIT = "limit"
 
 SERVICE_GET_SCHEDULE = "get_schedule"
+SERVICE_GET_AUDIT_LOG = "get_audit_log"
 SERVICE_UPDATE_SCHEDULE = "update_schedule"
 SERVICE_AUTO_DIVIDE_SCHEDULE = "auto_divide_schedule"
 SERVICE_APPLY_PUMP_ADJUSTMENT = "apply_pump_adjustment"
@@ -134,6 +136,14 @@ SYNC_GROUP_MEMBER_SCHEMA = vol.Schema(
 )
 
 SYNC_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_GROUP_ID): cv.string})
+
+GET_AUDIT_LOG_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_PUMP_ID): cv.string,
+        vol.Optional(ATTR_GROUP_ID): cv.string,
+        vol.Optional(ATTR_LIMIT): cv.positive_int,
+    }
+)
 
 
 def _get_client(hass: HomeAssistant) -> ReefDoseClient:
@@ -281,6 +291,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await _call(client.async_sync_group(call.data[ATTR_GROUP_ID]))
         await _refresh_pumps()
 
+    async def get_audit_log(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        entries = await _call(
+            client.async_get_audit_log(
+                call.data.get(ATTR_PUMP_ID),
+                call.data.get(ATTR_GROUP_ID),
+                call.data.get(ATTR_LIMIT),
+            )
+        )
+        return {"entries": entries}
+
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY
     )
@@ -348,3 +369,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN, SERVICE_SYNC_GROUP_MEMBER, sync_group_member, schema=SYNC_GROUP_MEMBER_SCHEMA
     )
     hass.services.async_register(DOMAIN, SERVICE_SYNC_GROUP, sync_group, schema=SYNC_GROUP_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_AUDIT_LOG,
+        get_audit_log,
+        schema=GET_AUDIT_LOG_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )

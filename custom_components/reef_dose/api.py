@@ -139,12 +139,32 @@ class ReefDoseClient:
             "POST", f"/pumps/{pump_id}/adjustment", json={"deltaPercent": delta_percent}
         )
 
+    async def async_get_audit_log(
+        self,
+        pump_id: str | None = None,
+        group_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return recent audit entries (newest first), optionally filtered."""
+        params: dict[str, str] = {}
+        if pump_id is not None:
+            params["pumpId"] = pump_id
+        if group_id is not None:
+            params["groupId"] = group_id
+        if limit is not None:
+            params["limit"] = str(limit)
+        return await self._request("GET", "/audit", params=params or None)
+
     async def _request(
-        self, method: str, path: str, json: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
     ) -> Any:
         try:
             async with self._session.request(
-                method, f"{self._base_url}{path}", headers=self._headers, json=json
+                method, f"{self._base_url}{path}", headers=self._headers, json=json, params=params
             ) as resp:
                 if resp.status == 401:
                     raise ReefDoseAuthError("reef-dose-service rejected the api key")
