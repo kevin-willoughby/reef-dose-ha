@@ -47,6 +47,50 @@ refill_reservoir:
           max: 20000
           unit_of_measurement: mL
 
+start_calibration:
+  name: Start Calibration
+  description: >-
+    Runs a pump briefly for calibration and returns the sessionId that must
+    be passed to apply_calibration next - a stale or mismatched sessionId is
+    silently ignored by the firmware, so the card threads this value through
+    its calibration screens rather than inventing its own. Meant for the
+    reef-dose-card custom Lovelace card's Calibrate button.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+
+apply_calibration:
+  name: Apply Calibration
+  description: >-
+    Finishes a calibration run started by start_calibration, recording how
+    many mL the pump actually dispensed (measured_ml) for the given
+    session_id. Meant for the reef-dose-card custom Lovelace card's
+    calibration flow.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    session_id:
+      required: true
+      example: 42
+      selector:
+        number:
+          min: 0
+    measured_ml:
+      required: true
+      example: 12.5
+      selector:
+        number:
+          min: 0.01
+          max: 2000
+          step: 0.01
+          unit_of_measurement: mL
+
 update_schedule:
   name: Update Schedule
   description: >-
