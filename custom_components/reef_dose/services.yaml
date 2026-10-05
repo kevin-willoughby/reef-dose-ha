@@ -33,6 +33,17 @@ update_schedule:
       example: '{"00": 1.29, "14": 0}'
       selector:
         object:
+    context:
+      description: >-
+        Optional free-form explanation for WHY this write is happening, e.g.
+        {"ph": 8.18, "boostInSeason": true, "decision": "boost"} - stored
+        verbatim in reef-dose-service's audit log alongside the before/after
+        values, never interpreted by the service itself. Lets an automation
+        (like the pH-boost blueprint) record the live reading that drove its
+        decision, not just the resulting on/off state.
+      example: '{"ph": 8.18, "decision": "boost"}'
+      selector:
+        object:
 
 auto_divide_schedule:
   name: Auto-Divide Schedule

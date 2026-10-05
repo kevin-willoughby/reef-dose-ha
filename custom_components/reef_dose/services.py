@@ -35,6 +35,7 @@ ATTR_SCALE_PERCENT = "scale_percent"
 ATTR_SCHEDULE_ENABLED = "schedule_enabled"
 ATTR_SPLIT_DOSE_ENABLED = "split_dose_enabled"
 ATTR_SLOTS = "slots"
+ATTR_CONTEXT = "context"
 ATTR_DAILY_TOTAL_ML = "daily_total_ml"
 ATTR_DELTA_PERCENT = "delta_percent"
 ATTR_AUTO_SYNC = "auto_sync"
@@ -66,6 +67,10 @@ UPDATE_SCHEDULE_SCHEMA = vol.Schema(
         # not in HOURS is rejected by reef-dose-service itself, not
         # re-validated here (one source of truth for the hour set).
         vol.Optional(ATTR_SLOTS): {vol.In(_HOUR_KEYS): vol.Coerce(float)},
+        # Opaque audit context (e.g. the pH reading that drove an
+        # automation's decision) - passed straight through to
+        # reef-dose-service's audit log, never interpreted here.
+        vol.Optional(ATTR_CONTEXT): dict,
     }
 )
 
@@ -178,6 +183,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 (ATTR_SCHEDULE_ENABLED, "scheduleEnabled"),
                 (ATTR_SPLIT_DOSE_ENABLED, "splitDoseEnabled"),
                 (ATTR_SLOTS, "slots"),
+                (ATTR_CONTEXT, "context"),
             )
             if attr in call.data
         }
