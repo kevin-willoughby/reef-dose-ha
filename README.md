@@ -168,27 +168,42 @@ must never both be enabled at once, decided hourly from the Apex's real pH and t
 
 Only ever flips the two variants' `schedule_enabled` switches — it does **not** push schedule slot
 values. The group's slot template only changes when you edit it directly (rare, manual), so
-re-syncing all ~50 slots on every hourly decision was pure overhead and the single biggest source
-of exposure to reef-dose-service's intermittent ESP32 command timeouts (confirmed live,
-2026-10-05). If you edit the group's schedule/scale while a variant is inactive, sync that variant
-explicitly (`reef_dose.sync_group_member`/`sync_group`) before it's next selected.
+re-syncing all ~50 slots on every hourly decision was pure overhead.
+
+**Talks to HA's native ESPHome integration, not reef-dose-service** (changed 2026-10-05).
+`reef_dose.update_schedule`'s Node/`esphome-client` write path proved unreliable in production — a
+connection could get stuck silently breaking every write until a manual restart. Several fixes
+(WiFi power-save, UniFi minimum data rate, sensor polling interval, forced reconnect-on-failure)
+each helped but didn't eliminate it, confirmed by a real false-failure the same day the last fix
+shipped. HA's native ESPHome integration (`aioesphomeapi`, Python — the same stack HA's own ESPHome
+support is built on) was 100% reliable against the same device in every side-by-side test that day,
+so the blueprint now calls `switch.turn_on`/`switch.turn_off` directly against its entities instead.
+`reef-dose-service` is no longer in this automation's write path at all - it's still used for
+everything else (schedules, groups, reservoir, calibration, the audit log).
 
 **Setup:**
 
-1. Create an `input_boolean` helper first (Settings → Devices & Services → Helpers → + Add Helper
-   → Toggle) — this is the season gate, not a pH fallback. ON = pH-boost season is active, so the
+1. Add the device via **Settings → Devices & Services → Add Integration → ESPHome** — host
+   `192.168.90.13`, port `6053`, and the same Noise encryption key as `esphome_api_key` in
+   `reef-dose/esphome/secrets.yaml` (`reef-dose-service` already uses this same key, so it's not a
+   new credential to manage).
+2. Find the two "Schedule Enabled" switch entities for the Part 1 variants (on the device's page →
+   Controls → scroll to the relevant pump → gear icon → Entity ID), e.g.
+   `switch.extension_reef_dose_1_complete_part_1_schedule_enabled`.
+3. Create an `input_boolean` helper (Settings → Devices & Services → Helpers → + Add Helper →
+   Toggle) — this is the season gate, not a pH fallback. ON = pH-boost season is active, so the
    blueprint examines live pH and time of day each run. OFF = out of season, so it forces no-boost
    every run without even checking pH.
-2. Set the real ReefZelements group to `auto_sync: false` once (Developer Tools → Actions →
-   `reef_dose.update_group` with `group_id: "Reef Zelements"`, `auto_sync: false`) — otherwise the
-   group itself will keep fighting the blueprint by re-pushing the template to all three members on
-   every template edit.
-3. Settings → Automations & Scenes → Blueprints → Import Blueprint, point it at this file (or the
+4. Settings → Automations & Scenes → Blueprints → Import Blueprint, point it at this file (or the
    raw GitHub URL once pushed), then create an automation from it with:
    - **Apex pH Sensor**: `sensor.apex_ph`
-   - **No-Boost Pump ID**: `1`
-   - **pH-Boost Pump ID**: `2`
-   - **pH Boost Enabled**: the `input_boolean` created in step 1
+   - **No-Boost Schedule Enabled Switch**: the entity from step 2 for the no-boost variant
+   - **pH-Boost Schedule Enabled Switch**: the entity from step 2 for the boost variant
+   - **pH Boost Enabled**: the `input_boolean` from step 3
+
+If you ever edit the ReefZelements group's schedule/scale in `reef-dose-service` while a variant is
+inactive, sync that variant explicitly (`reef_dose.sync_group_member`/`sync_group`) before it's next
+selected - the blueprint no longer touches schedule slots at all, native or otherwise.
 
 The automation runs at :50 past every hour, deciding which variant doses the upcoming hour, and
 can be tested immediately via its own "Run actions" button in the HA UI rather than waiting for a
