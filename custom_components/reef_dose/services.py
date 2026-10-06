@@ -44,6 +44,7 @@ ATTR_FULL_ML = "full_ml"
 ATTR_SESSION_ID = "session_id"
 ATTR_MEASURED_ML = "measured_ml"
 
+SERVICE_GET_NAME = "get_name"
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_GET_RESERVOIR = "get_reservoir"
 SERVICE_REFILL_RESERVOIR = "refill_reservoir"
@@ -65,6 +66,8 @@ SERVICE_SYNC_GROUP_MEMBER = "sync_group_member"
 SERVICE_SYNC_GROUP = "sync_group"
 
 _HOUR_KEYS = [f"{h:02d}" for h in range(24)]
+
+GET_NAME_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
 
 GET_SCHEDULE_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
 
@@ -213,6 +216,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def _refresh_groups() -> None:
         await _get_data().groups_coordinator.async_request_refresh()
+
+    async def get_name(call: ServiceCall) -> ServiceResponse:
+        # Lets a card resolve a pump's current device-configured display
+        # label without guessing a sensor entity_id - that slug isn't
+        # stable across setups (confirmed live, 2026-10-06: an instance
+        # with a renamed config entry produced "sensor.extension_pump_1_
+        # label" instead of the assumed "sensor.pump_1_label").
+        client = _get_client(hass)
+        name = await _call(client.async_get_name(call.data[ATTR_PUMP_ID]))
+        return {"name": name}
 
     async def get_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
@@ -368,6 +381,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
         return {"entries": entries}
 
+    hass.services.async_register(
+        DOMAIN, SERVICE_GET_NAME, get_name, schema=GET_NAME_SCHEMA, supports_response=SupportsResponse.ONLY
+    )
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY
     )
