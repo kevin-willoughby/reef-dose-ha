@@ -45,6 +45,7 @@ ATTR_SESSION_ID = "session_id"
 ATTR_MEASURED_ML = "measured_ml"
 
 SERVICE_GET_NAME = "get_name"
+SERVICE_SET_NAME = "set_name"
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_GET_RESERVOIR = "get_reservoir"
 SERVICE_REFILL_RESERVOIR = "refill_reservoir"
@@ -68,6 +69,13 @@ SERVICE_SYNC_GROUP = "sync_group"
 _HOUR_KEYS = [f"{h:02d}" for h in range(24)]
 
 GET_NAME_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
+
+SET_NAME_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PUMP_ID): cv.string,
+        vol.Required(ATTR_NAME): cv.string,
+    }
+)
 
 GET_SCHEDULE_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
 
@@ -227,6 +235,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         name = await _call(client.async_get_name(call.data[ATTR_PUMP_ID]))
         return {"name": name}
 
+    async def set_name(call: ServiceCall) -> ServiceResponse:
+        client = _get_client(hass)
+        name = await _call(client.async_set_name(call.data[ATTR_PUMP_ID], call.data[ATTR_NAME]))
+        # Refreshes the pumps coordinator so the Label sensor (and the
+        # next get_name call) reflect the rename immediately, rather
+        # than waiting for the coordinator's normal poll interval -
+        # same reasoning as refill_reservoir below.
+        await _refresh_pumps()
+        return {"name": name}
+
     async def get_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
         return await _call(client.async_get_schedule(call.data[ATTR_PUMP_ID]))
@@ -383,6 +401,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN, SERVICE_GET_NAME, get_name, schema=GET_NAME_SCHEMA, supports_response=SupportsResponse.ONLY
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_NAME, set_name, schema=SET_NAME_SCHEMA, supports_response=SupportsResponse.ONLY
     )
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY

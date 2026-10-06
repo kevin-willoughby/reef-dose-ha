@@ -10,6 +10,23 @@ get_name:
       selector:
         text:
 
+set_name:
+  name: Set Name
+  description: >-
+    Renames a pump's device-configured display label. Response-only - meant
+    for the reef-dose-card custom Lovelace card, not automations.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    name:
+      required: true
+      example: "Reef Zelements-Complete Part 1"
+      selector:
+        text:
+
 get_schedule:
   name: Get Schedule
   description: >-
