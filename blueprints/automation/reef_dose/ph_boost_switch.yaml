@@ -97,7 +97,7 @@ variables:
   boost_switch: !input boost_switch_entity
   ph_available: "{{ states(ph_entity) not in ['unknown', 'unavailable', none] }}"
   ph_age_minutes: >-
-    {{ ((now() - states[ph_entity].last_changed).total_seconds() / 60)
+    {{ ((now() - states[ph_entity].last_updated).total_seconds() / 60)
        if ph_available else 999999 }}
   ph_fresh: "{{ ph_available and ph_age_minutes < stale_after_minutes }}"
   ph_value: "{{ states(ph_entity) | float(8.3) }}"
