@@ -27,6 +27,40 @@ set_name:
       selector:
         text:
 
+prime:
+  name: Prime
+  description: >-
+    Fires a pump's 10s prime pulse. Meant for the reef-dose-card custom
+    Lovelace card's Prime button.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+
+manual_dose:
+  name: Manual Dose
+  description: >-
+    Dispenses a one-off dose right now, independent of the pump's
+    schedule. Meant for the reef-dose-card custom Lovelace card's Manual
+    Dose button.
+  fields:
+    pump_id:
+      required: true
+      example: "1"
+      selector:
+        text:
+    ml:
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 0.01
+          max: 50
+          step: 0.01
+          unit_of_measurement: mL
+
 get_schedule:
   name: Get Schedule
   description: >-

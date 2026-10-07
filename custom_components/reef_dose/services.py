@@ -43,9 +43,12 @@ ATTR_LIMIT = "limit"
 ATTR_FULL_ML = "full_ml"
 ATTR_SESSION_ID = "session_id"
 ATTR_MEASURED_ML = "measured_ml"
+ATTR_ML = "ml"
 
 SERVICE_GET_NAME = "get_name"
 SERVICE_SET_NAME = "set_name"
+SERVICE_PRIME = "prime"
+SERVICE_MANUAL_DOSE = "manual_dose"
 SERVICE_GET_SCHEDULE = "get_schedule"
 SERVICE_GET_RESERVOIR = "get_reservoir"
 SERVICE_REFILL_RESERVOIR = "refill_reservoir"
@@ -85,6 +88,18 @@ REFILL_RESERVOIR_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_PUMP_ID): cv.string,
         vol.Required(ATTR_FULL_ML): vol.Coerce(float),
+    }
+)
+
+PRIME_SCHEMA = vol.Schema({vol.Required(ATTR_PUMP_ID): cv.string})
+
+# Bounds match ManualDoseDto in reef-dose-service, which independently
+# re-checks this range itself - this just gives the card a clean
+# HomeAssistantError instead of a raw 400.
+MANUAL_DOSE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PUMP_ID): cv.string,
+        vol.Required(ATTR_ML): vol.All(vol.Coerce(float), vol.Range(min=0.01, max=50)),
     }
 )
 
@@ -244,6 +259,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # same reasoning as refill_reservoir below.
         await _refresh_pumps()
         return {"name": name}
+
+    async def prime(call: ServiceCall) -> None:
+        client = _get_client(hass)
+        await _call(client.async_prime(call.data[ATTR_PUMP_ID]))
+
+    async def manual_dose(call: ServiceCall) -> None:
+        client = _get_client(hass)
+        await _call(client.async_manual_dose(call.data[ATTR_PUMP_ID], call.data[ATTR_ML]))
+        await _refresh_pumps()
 
     async def get_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
@@ -405,6 +429,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_SET_NAME, set_name, schema=SET_NAME_SCHEMA, supports_response=SupportsResponse.ONLY
     )
+    hass.services.async_register(DOMAIN, SERVICE_PRIME, prime, schema=PRIME_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_MANUAL_DOSE, manual_dose, schema=MANUAL_DOSE_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_GET_SCHEDULE, get_schedule, schema=GET_SCHEDULE_SCHEMA, supports_response=SupportsResponse.ONLY
     )
