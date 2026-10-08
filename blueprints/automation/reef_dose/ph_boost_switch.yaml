@@ -28,10 +28,21 @@ blueprint:
     looking at pH. ON means boost season is active, so the automation
     examines live pH and time of day to decide - pH > 8.3 -> no-boost,
     pH < 8.3 -> boost, additionally after 20:00 *and* pH < 8.4 -> boost
-    (overrides the above). If the pH sensor is unavailable or hasn't
-    updated recently while boost is in season, defaults to boost (the
-    safer assumption during the season this channel exists for) until a
-    fresh reading arrives.
+    (overrides the above). If the pH sensor is unavailable while boost is
+    in season, defaults to boost (the safer assumption during the season
+    this channel exists for) until it reports again.
+
+    Staleness used to also be judged by how long ago the sensor's state
+    last changed (`stale_after_minutes`), dropped 2026-10-08: HA's state
+    machine only advances `last_updated`/`last_changed` when a poll's
+    value actually differs from the previous one, and the Apex's pH
+    reading legitimately holds the same rounded value across multiple
+    consecutive 5-minute polls often enough (confirmed via History -
+    15-25+ minute flat runs within a single hour are normal) that the old
+    30-minute default kept getting crossed by a perfectly healthy sensor,
+    forcing boost when it shouldn't have. Availability
+    (`unknown`/`unavailable`) is a reliable unavailability signal on its
+    own; a stable reading is not staleness.
   domain: automation
   input:
     apex_ph_entity:
@@ -70,18 +81,6 @@ blueprint:
       selector:
         entity:
           domain: input_boolean
-    stale_after_minutes:
-      name: Stale After (minutes)
-      description: >-
-        If the pH sensor hasn't updated in this many minutes while boost
-        is in season, treat it as unavailable and default to boost instead
-        until a fresh reading arrives.
-      default: 30
-      selector:
-        number:
-          min: 1
-          max: 1440
-          unit_of_measurement: minutes
 
 trigger:
   - platform: time_pattern
@@ -91,25 +90,20 @@ condition: []
 
 variables:
   ph_entity: !input apex_ph_entity
-  stale_after_minutes: !input stale_after_minutes
   ph_boost_helper: !input ph_boost_enabled_helper
   no_boost_switch: !input no_boost_switch_entity
   boost_switch: !input boost_switch_entity
   ph_available: "{{ states(ph_entity) not in ['unknown', 'unavailable', none] }}"
-  ph_age_minutes: >-
-    {{ ((now() - states[ph_entity].last_updated).total_seconds() / 60)
-       if ph_available else 999999 }}
-  ph_fresh: "{{ ph_available and ph_age_minutes < stale_after_minutes }}"
   ph_value: "{{ states(ph_entity) | float(8.3) }}"
   boost_in_season: "{{ is_state(ph_boost_helper, 'on') }}"
   # Out of season -> always no-boost, pH not even considered. In season ->
   # pH>8.3 -> no-boost, pH<8.3 -> boost, additionally after 20:00 and
-  # pH<8.4 -> boost (overrides); if pH is stale while in season, default
-  # to boost rather than no-boost - requirements.md Section 6.
+  # pH<8.4 -> boost (overrides); if pH is unavailable while in season,
+  # default to boost rather than no-boost - requirements.md Section 6.
   decision_boost: >-
     {{ false if not boost_in_season else
        (((ph_value < 8.3) or (now().hour >= 20 and ph_value < 8.4))
-        if ph_fresh else true) }}
+        if ph_available else true) }}
 
 action:
   # Disable the losing variant BEFORE enabling the winner. This ordering
@@ -141,7 +135,7 @@ action:
           entity_id: "{{ no_boost_switch }}"
   # Native switch.turn_on/turn_off don't accept arbitrary context data
   # the way reef_dose.update_schedule did - this replaces that audit
-  # trail (pH reading, freshness, season, decision) with a logbook
+  # trail (pH reading, availability, season, decision) with a logbook
   # entry, so "why did it pick boost this time" stays visible in HA's
   # own Logbook against the switch that changed.
   - service: logbook.log
@@ -150,7 +144,7 @@ action:
       name: pH-Boost decision
       message: >-
         {{ 'boost' if decision_boost else 'no_boost' }} - pH={{ ph_value }},
-        fresh={{ ph_fresh }}, season={{ boost_in_season }}
+        available={{ ph_available }}, season={{ boost_in_season }}
       entity_id: "{{ boost_switch if decision_boost else no_boost_switch }}"
 
 mode: single
