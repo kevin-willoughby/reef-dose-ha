@@ -43,6 +43,15 @@ blueprint:
     forcing boost when it shouldn't have. Availability
     (`unknown`/`unavailable`) is a reliable unavailability signal on its
     own; a stable reading is not staleness.
+
+    Both-disabled (no KH dosing) and both-enabled (double dose,
+    precipitation risk) are both real failure modes this automation's
+    disable-then-enable sequencing can land in in if one of the two
+    switch calls silently doesn't take. Rather than reorder these calls
+    to favor one failure over the other, a separate watchdog blueprint
+    (reef_dose/ph_boost_watchdog.yaml) runs a few minutes after this one
+    and corrects either case back to a known-safe single-switch state -
+    see that file.
   domain: automation
   input:
     apex_ph_entity:

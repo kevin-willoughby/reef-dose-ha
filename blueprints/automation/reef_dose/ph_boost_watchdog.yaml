@@ -1,0 +1,89 @@
+blueprint:
+  name: Reef Dose - pH-Boost Part 1 Variant Watchdog
+  description: >-
+    Runs a few minutes after "Reef Dose - pH-Boost Part 1 Variant Switch"
+    (which decides at :50 past the hour) and corrects the two Part 1
+    variant switches back to a known-safe single-switch state if that
+    automation's disable-then-enable sequence left them both off (no KH
+    dosing that hour) or both on (double dose, precipitation risk) - e.g.
+    because one of its two switch calls silently didn't take.
+
+    Deliberately a separate automation rather than retrying inline in the
+    main one: by running several minutes later it only acts once the
+    device has had time to settle after any transient reconnect, and it
+    checks the switches' actual reported state rather than assuming its
+    own calls succeeded.
+
+    On intervention: if both are off, turns the no-boost switch (pump 1)
+    on - the safe default regardless of the pH decision, since *some*
+    Part 1 dosing is better than none. If both are on, turns the boost
+    switch (pump 2) off, leaving pump 1 running. Either way, logs to the
+    Logbook and raises a persistent notification so a recurring failure
+    stays visible instead of silently correcting itself every hour.
+  domain: automation
+  input:
+    no_boost_switch_entity:
+      name: No-Boost Schedule Enabled Switch
+      description: Same entity passed to the pH-Boost Part 1 Variant Switch blueprint.
+      selector:
+        entity:
+          domain: switch
+    boost_switch_entity:
+      name: pH-Boost Schedule Enabled Switch
+      description: Same entity passed to the pH-Boost Part 1 Variant Switch blueprint.
+      selector:
+        entity:
+          domain: switch
+
+trigger:
+  - platform: time_pattern
+    minutes: 55
+
+condition: []
+
+variables:
+  no_boost_switch: !input no_boost_switch_entity
+  boost_switch: !input boost_switch_entity
+
+action:
+  - choose:
+      - conditions:
+          - "{{ is_state(no_boost_switch, 'off') and is_state(boost_switch, 'off') }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: "{{ no_boost_switch }}"
+          - service: logbook.log
+            data:
+              name: pH-Boost watchdog
+              message: >-
+                Both Part 1 variants were disabled - enabled
+                {{ no_boost_switch }} as the safe default.
+              entity_id: "{{ no_boost_switch }}"
+          - service: persistent_notification.create
+            data:
+              title: "Reef Dose: Part 1 watchdog intervened"
+              message: >-
+                Both Part 1 variant switches were disabled. Enabled
+                {{ no_boost_switch }} to restore dosing.
+      - conditions:
+          - "{{ is_state(no_boost_switch, 'on') and is_state(boost_switch, 'on') }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ boost_switch }}"
+          - service: logbook.log
+            data:
+              name: pH-Boost watchdog
+              message: >-
+                Both Part 1 variants were enabled - disabled
+                {{ boost_switch }}, left {{ no_boost_switch }} on.
+              entity_id: "{{ boost_switch }}"
+          - service: persistent_notification.create
+            data:
+              title: "Reef Dose: Part 1 watchdog intervened"
+              message: >-
+                Both Part 1 variant switches were enabled. Disabled
+                {{ boost_switch }} to stop the double dose.
+
+mode: single
