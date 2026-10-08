@@ -19,6 +19,8 @@ changes.
 """
 from __future__ import annotations
 
+import asyncio
+
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
@@ -240,6 +242,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def _refresh_groups() -> None:
         await _get_data().groups_coordinator.async_request_refresh()
 
+    def _patch_pump(pump_id: str, fields: dict) -> None:  # type: ignore[type-arg]
+        # The schedule write endpoints already return the complete
+        # resulting pump record - merge it straight into the
+        # coordinator's cache instead of paying for a full
+        # _async_update_data() refresh of every pump.
+        coordinator = _get_data().coordinator
+        data = dict(coordinator.data or {})
+        data[pump_id] = {**data.get(pump_id, {}), **fields}
+        coordinator.async_set_updated_data(data)
+
+    def _patch_group(group_id: str, fields: dict) -> None:  # type: ignore[type-arg]
+        coordinator = _get_data().groups_coordinator
+        data = dict(coordinator.data or {})
+        data[group_id] = {**data.get(group_id, {}), **fields}
+        coordinator.async_set_updated_data(data)
+
+    async def _patch_group_members(group_id: str, client: ReefDoseClient) -> None:
+        # A group schedule write pushes the new template to every
+        # member pump server-side. Re-fetch just those pumps' schedules
+        # (in parallel) rather than refreshing the whole fleet - member
+        # ids come straight from the already-cached groups coordinator,
+        # no extra request needed to find them.
+        group = _get_data().groups_coordinator.data.get(group_id) or {}
+        pump_ids = group.get("pumpIds") or []
+        if not pump_ids:
+            return
+        schedules = await asyncio.gather(*(client.async_get_schedule(pid) for pid in pump_ids))
+        coordinator = _get_data().coordinator
+        data = dict(coordinator.data or {})
+        for pump_id, schedule in zip(pump_ids, schedules):
+            data[pump_id] = {**data.get(pump_id, {}), **schedule}
+        coordinator.async_set_updated_data(data)
+
     async def get_name(call: ServiceCall) -> ServiceResponse:
         # Lets a card resolve a pump's current device-configured display
         # label without guessing a sensor entity_id - that slug isn't
@@ -310,15 +345,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             if attr in call.data
         }
         result = await _call(client.async_update_schedule(pump_id, **fields))
-        await _refresh_pumps()
+        _patch_pump(pump_id, result)
         return result
 
     async def auto_divide_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
-        result = await _call(
-            client.async_auto_divide_schedule(call.data[ATTR_PUMP_ID], call.data[ATTR_DAILY_TOTAL_ML])
-        )
-        await _refresh_pumps()
+        pump_id = call.data[ATTR_PUMP_ID]
+        result = await _call(client.async_auto_divide_schedule(pump_id, call.data[ATTR_DAILY_TOTAL_ML]))
+        _patch_pump(pump_id, result)
         return result
 
     async def get_groups(call: ServiceCall) -> ServiceResponse:
@@ -386,20 +420,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def update_group_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
-        result = await _call(
-            client.async_update_group_schedule(call.data[ATTR_GROUP_ID], call.data[ATTR_SLOTS])
-        )
-        await _refresh_pumps()
-        await _refresh_groups()
+        group_id = call.data[ATTR_GROUP_ID]
+        result = await _call(client.async_update_group_schedule(group_id, call.data[ATTR_SLOTS]))
+        _patch_group(group_id, result)
+        await _patch_group_members(group_id, client)
         return result
 
     async def auto_divide_group_schedule(call: ServiceCall) -> ServiceResponse:
         client = _get_client(hass)
-        result = await _call(
-            client.async_auto_divide_group_schedule(call.data[ATTR_GROUP_ID], call.data[ATTR_DAILY_TOTAL_ML])
-        )
-        await _refresh_pumps()
-        await _refresh_groups()
+        group_id = call.data[ATTR_GROUP_ID]
+        result = await _call(client.async_auto_divide_group_schedule(group_id, call.data[ATTR_DAILY_TOTAL_ML]))
+        _patch_group(group_id, result)
+        await _patch_group_members(group_id, client)
         return result
 
     async def sync_group_member(call: ServiceCall) -> None:
